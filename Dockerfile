@@ -13,6 +13,4 @@ COPY . .
 
 EXPOSE 8000
 
-# Railway pasa el puerto en la variable $PORT
-# Usamos shell form para que se interprete la variable
 CMD exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
