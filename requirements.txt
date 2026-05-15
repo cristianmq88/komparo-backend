@@ -11,9 +11,10 @@ psycopg2-binary==2.9.9
 pydantic==2.9.2
 email-validator==2.2.0
 
-# Auth
+# Auth - bcrypt fijo a 4.0.1 por compatibilidad con passlib
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+passlib==1.7.4
+bcrypt==4.0.1
 
 # Utilidades
 python-dotenv==1.0.1
