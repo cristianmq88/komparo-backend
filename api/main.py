@@ -25,6 +25,7 @@ from api.auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
+from api.endpoints_prices import router as prices_router, admin_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,6 +54,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Registrar routers de scrapers (precios reales)
+app.include_router(prices_router)
+app.include_router(admin_router)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

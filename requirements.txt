@@ -18,3 +18,7 @@ bcrypt==4.0.1
 
 # Utilidades
 python-dotenv==1.0.1
+
+# Scrapers
+requests==2.31.0
+httpx==0.25.2
