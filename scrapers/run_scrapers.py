@@ -11,7 +11,7 @@ import sys
 from datetime import datetime
 
 from sqlalchemy.orm import sessionmaker
-from database import engine  # Tu engine SQLAlchemy
+from db.database import engine  # Tu engine SQLAlchemy
 
 from scrapers.carrefour_scraper import CarrefourScraper
 from scrapers.mercadona_scraper import MercadonaScraper
