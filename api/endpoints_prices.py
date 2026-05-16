@@ -16,12 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
-# Asume tu setup actual de FastAPI:
-# from database import get_db
-# from auth import get_current_user
-# from db.models_prices import Product, CurrentPrice, PriceHistory, ScraperRun
-# from db.models import User, ShoppingList, ListItem
-
+# Imports del backend
+from db.database import get_db
+from api.auth import get_current_user
+from db.models_prices import Product, CurrentPrice, PriceHistory, ScraperRun
+from db.models import User, ShoppingList, ListItem
+ 
 
 router = APIRouter(prefix="/products/real", tags=["real-prices"])
 

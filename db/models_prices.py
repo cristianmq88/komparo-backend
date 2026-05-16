@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 import uuid
 
-from database import Base  # Tu Base existente
+from db.database import Base  # Tu Base existente
 
 
 class Product(Base):
