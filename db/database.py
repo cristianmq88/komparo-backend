@@ -1,24 +1,29 @@
 """
-db/database.py — Conexión a PostgreSQL
+db/database.py — Conexión a PostgreSQL (o SQLite local en desarrollo)
 """
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Railway provee DATABASE_URL automáticamente
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./komparo.db")
 
-# Railway usa postgresql:// pero SQLAlchemy prefiere postgresql+psycopg2://
+# Railway usa el esquema antiguo postgres://; SQLAlchemy requiere postgresql://
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+_engine_kwargs = {"pool_pre_ping": True}
+if DATABASE_URL.startswith("sqlite"):
+    # SQLite requiere desactivar same-thread check para FastAPI
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
 def get_db():
-    """Dependency para FastAPI"""
+    """Dependency para FastAPI."""
     db = SessionLocal()
     try:
         yield db

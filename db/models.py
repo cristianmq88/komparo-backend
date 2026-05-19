@@ -1,21 +1,29 @@
 """
 db/models.py — Modelos de la base de datos
 """
-from datetime import datetime
-from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, Text, ForeignKey, JSON
-from sqlalchemy.orm import relationship
-from db.database import Base
 import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    Column, String, Integer, Boolean, DateTime, Text, ForeignKey, JSON,
+)
+from sqlalchemy.orm import relationship
+
+from db.database import Base
 
 
-def gen_uuid():
+def gen_uuid() -> str:
     return str(uuid.uuid4())
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String, primary_key=True, default=gen_uuid)
+    id = Column(String(36), primary_key=True, default=gen_uuid)
     email = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     hashed_password = Column(String, nullable=False)
@@ -24,36 +32,42 @@ class User(Base):
     city = Column(String, default="Madrid")
     postal_code = Column(String, default="28001")
     is_premium = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
-    lists = relationship("ShoppingList", back_populates="owner", cascade="all, delete-orphan")
+    lists = relationship(
+        "ShoppingList", back_populates="owner", cascade="all, delete-orphan"
+    )
 
 
 class ShoppingList(Base):
     __tablename__ = "shopping_lists"
 
-    id = Column(String, primary_key=True, default=gen_uuid)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
     emoji = Column(String, default="🛒")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     owner = relationship("User", back_populates="lists")
-    items = relationship("ListItem", back_populates="shopping_list", cascade="all, delete-orphan")
+    items = relationship(
+        "ListItem", back_populates="shopping_list", cascade="all, delete-orphan"
+    )
 
 
 class ListItem(Base):
     __tablename__ = "list_items"
 
-    id = Column(String, primary_key=True, default=gen_uuid)
-    list_id = Column(String, ForeignKey("shopping_lists.id"), nullable=False)
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    list_id = Column(
+        String(36), ForeignKey("shopping_lists.id"), nullable=False, index=True
+    )
     name = Column(String, nullable=False)
     brand = Column(String, nullable=True)
     is_white_label = Column(Boolean, default=False)
     quantity = Column(Integer, default=1)
     notes = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     shopping_list = relationship("ShoppingList", back_populates="items")
 
@@ -61,7 +75,7 @@ class ListItem(Base):
 class Recipe(Base):
     __tablename__ = "recipes"
 
-    id = Column(String, primary_key=True, default=gen_uuid)
+    id = Column(String(36), primary_key=True, default=gen_uuid)
     title = Column(String, nullable=False, index=True)
     description = Column(Text)
     image_url = Column(String)
@@ -72,4 +86,4 @@ class Recipe(Base):
     ingredients = Column(JSON)
     instructions = Column(Text)
     source = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
