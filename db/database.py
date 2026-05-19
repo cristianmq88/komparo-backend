@@ -74,6 +74,13 @@ def ensure_schema_updates() -> None:
                         f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_ddl}"
                     ))
                     logger.info(f"➕ Columna añadida: {table_name}.{col_name}")
+                    # Usuarios pre-existentes se asumen verificados (no romper su acceso)
+                    if table_name == "users" and col_name == "email_verified":
+                        conn.execute(text(
+                            "UPDATE users SET email_verified = TRUE "
+                            "WHERE email_verified = FALSE OR email_verified IS NULL"
+                        ))
+                        logger.info("✅ Usuarios pre-existentes marcados como verificados")
                 except Exception as e:
                     logger.warning(
                         f"No se pudo añadir {table_name}.{col_name}: {e}"

@@ -17,10 +17,11 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from api.auth import (
@@ -40,13 +41,15 @@ from api.auth import (
 )
 from api.email_service import send_password_reset_email, send_verification_email
 from api.endpoints_prices import admin_router, lists_router, router as prices_router
+from api.rate_limit import check_rate_limit
 from db.database import (
     Base, engine, ensure_schema_updates, get_db, seed_recipes_if_empty, utcnow,
 )
 from db.models import ListItem, PasswordResetToken, Recipe, ShoppingList, User
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+logging.basicConfig(level=logging.INFO)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -118,6 +121,25 @@ class UserOut(BaseModel):
     name: str
     is_premium: bool
     email_verified: bool
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    phone: Optional[str] = Field(None, max_length=30)
+    city: Optional[str] = Field(None, max_length=120)
+    postal_code: Optional[str] = Field(None, max_length=10)
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class DeleteAccountIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
 
 
 class Token(BaseModel):
@@ -217,8 +239,14 @@ def _issue_token(user: User) -> Token:
 
 
 @app.post("/auth/register", response_model=Token, tags=["auth"])
-def register(data: UserRegister, db: Session = Depends(get_db)):
+def register(
+    data: UserRegister,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Registra una cuenta nueva y envía email de verificación."""
+    check_rate_limit(request, "register", max_requests=5, window_seconds=3600)
+
     if db.query(User.id).filter(User.email == data.email).first():
         raise HTTPException(400, "Email ya registrado")
 
@@ -240,10 +268,13 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
 
 @app.post("/auth/login", response_model=Token, tags=["auth"])
 def login(
+    request: Request,
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
     """Login con email/password. Bloquea tras N intentos fallidos."""
+    check_rate_limit(request, "login", max_requests=20, window_seconds=60)
+
     user = db.query(User).filter(User.email == form.username).first()
 
     # No revelar si el email existe
@@ -281,6 +312,62 @@ def get_me(user: User = Depends(get_current_user)):
     return user
 
 
+@app.put("/auth/me", response_model=UserOut, tags=["auth"])
+def update_me(
+    data: UserUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Actualiza el perfil del usuario autenticado."""
+    changes = data.model_dump(exclude_unset=True)
+    if not changes:
+        return user
+    for field, value in changes.items():
+        setattr(user, field, value)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.put("/auth/password", response_model=MessageOut, tags=["auth"])
+def change_password(
+    data: ChangePasswordIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cambia la contraseña del usuario autenticado."""
+    if not verify_password(data.current_password, user.hashed_password):
+        raise HTTPException(401, "La contraseña actual no es correcta")
+    if data.new_password == data.current_password:
+        raise HTTPException(400, "La nueva contraseña debe ser distinta")
+
+    user.hashed_password = hash_password(data.new_password)
+    reset_failed_logins(user)
+    db.commit()
+    return MessageOut(message="Contraseña actualizada correctamente")
+
+
+@app.delete("/auth/me", response_model=MessageOut, tags=["auth"])
+def delete_account(
+    data: DeleteAccountIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Elimina la cuenta y todos sus datos (RGPD)."""
+    if not verify_password(data.password, user.hashed_password):
+        raise HTTPException(401, "Contraseña incorrecta")
+
+    # Limpieza explícita de tokens de reset (no tienen cascade)
+    db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id
+    ).delete(synchronize_session=False)
+
+    # ShoppingList → ListItem ya tienen cascade="all, delete-orphan"
+    db.delete(user)
+    db.commit()
+    return MessageOut(message="Cuenta eliminada")
+
+
 @app.post("/auth/verify-email", response_model=MessageOut, tags=["auth"])
 def verify_email(data: VerifyEmailIn, db: Session = Depends(get_db)):
     """Marca el email del usuario como verificado."""
@@ -301,9 +388,12 @@ def verify_email(data: VerifyEmailIn, db: Session = Depends(get_db)):
 @app.post("/auth/resend-verification", response_model=MessageOut, tags=["auth"])
 def resend_verification(
     data: ResendVerificationIn,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Reenvía el email de verificación. Respuesta neutra (no revela emails)."""
+    check_rate_limit(request, "resend-verif", max_requests=3, window_seconds=3600)
+
     user = db.query(User).filter(User.email == data.email).first()
     neutral = MessageOut(message="Si el email existe, se ha enviado un nuevo enlace")
     if not user or user.email_verified:
@@ -319,8 +409,14 @@ def resend_verification(
 
 
 @app.post("/auth/forgot-password", response_model=MessageOut, tags=["auth"])
-def forgot_password(data: ForgotPasswordIn, db: Session = Depends(get_db)):
+def forgot_password(
+    data: ForgotPasswordIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """Envía un email con enlace de restablecimiento. Respuesta neutra."""
+    check_rate_limit(request, "forgot-pwd", max_requests=5, window_seconds=3600)
+
     user = db.query(User).filter(User.email == data.email).first()
     neutral = MessageOut(message="Si el email existe, se ha enviado un enlace")
     if not user:
@@ -577,6 +673,22 @@ def _serialize_recipe(r: Recipe) -> dict:
         "difficulty": r.difficulty,
         "category": r.category,
         "ingredients": r.ingredients or [],
+        "instructions": r.instructions,
+    }
+
+
+@app.get("/recipes/categories", tags=["recipes"])
+def list_recipe_categories(db: Session = Depends(get_db)):
+    """Lista las categorías y dificultades disponibles."""
+    cat_rows = db.query(Recipe.category, func.count(Recipe.id)).group_by(
+        Recipe.category
+    ).all()
+    diff_rows = db.query(Recipe.difficulty, func.count(Recipe.id)).group_by(
+        Recipe.difficulty
+    ).all()
+    return {
+        "categories": [{"id": c, "count": n} for c, n in cat_rows if c],
+        "difficulties": [{"id": d, "count": n} for d, n in diff_rows if d],
     }
 
 
