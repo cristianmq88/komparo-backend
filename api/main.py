@@ -2,10 +2,11 @@
 api/main.py — Komparo API
 
 Endpoints:
-- Auth: register, login, me
+- Auth: register, login, me, verify-email, resend-verification,
+        forgot-password, reset-password
 - Lists: CRUD de cestas + comparativa
 - Items: añadir/quitar productos
-- Recipes: catálogo de recetas
+- Recipes: catálogo de recetas (sembrado en BD)
 - Products: búsqueda y comparativa
 - Supermarkets: info de los 8 súper
 """
@@ -16,7 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -24,14 +25,25 @@ from sqlalchemy.orm import Session, selectinload
 
 from api.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    MAX_FAILED_LOGINS,
+    PASSWORD_RESET_TOKEN_MINUTES,
+    VERIFICATION_TOKEN_HOURS,
     create_access_token,
+    generate_opaque_token,
     get_current_user,
     hash_password,
+    hash_token,
+    is_locked_out,
+    register_failed_login,
+    reset_failed_logins,
     verify_password,
 )
+from api.email_service import send_password_reset_email, send_verification_email
 from api.endpoints_prices import admin_router, lists_router, router as prices_router
-from db.database import Base, engine, get_db
-from db.models import ListItem, Recipe, ShoppingList, User  # noqa: F401 (Recipe usado por create_all)
+from db.database import (
+    Base, engine, ensure_schema_updates, get_db, seed_recipes_if_empty, utcnow,
+)
+from db.models import ListItem, PasswordResetToken, Recipe, ShoppingList, User
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,9 +57,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
-        logger.info("✅ Tablas de BD creadas")
+        ensure_schema_updates()
+        seed_recipes_if_empty()
+        logger.info("✅ Esquema BD listo")
     except Exception as e:
-        logger.warning(f"⚠️ Error creando tablas: {e}")
+        logger.warning(f"⚠️ Error preparando BD: {e}")
 
     db_url = os.getenv("DATABASE_URL", "")
     if "postgres" in db_url:
@@ -55,21 +69,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("⚠️ Sin PostgreSQL - usando SQLite local")
 
-    logger.info("🚀 Komparo API v2.0 iniciada")
+    logger.info("🚀 Komparo API v2.1 iniciada")
     yield
 
 
 app = FastAPI(
     title="Komparo API",
     description="API completa para Komparo - Comparador de precios Madrid",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 
-# CORS: configurable vía env var; por defecto solo localhost en dev.
 _cors_origins = [
     o.strip()
-    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
+    for o in os.getenv(
+        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
+    ).split(",")
     if o.strip()
 ]
 app.add_middleware(
@@ -102,12 +117,34 @@ class UserOut(BaseModel):
     email: str
     name: str
     is_premium: bool
+    email_verified: bool
 
 
 class Token(BaseModel):
     access_token: str
     token_type: str
     user: UserOut
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=10)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class VerifyEmailIn(BaseModel):
+    token: str = Field(min_length=10)
+
+
+class ResendVerificationIn(BaseModel):
+    email: EmailStr
+
+
+class MessageOut(BaseModel):
+    message: str
 
 
 class ListCreate(BaseModel):
@@ -151,7 +188,7 @@ class ListOut(BaseModel):
 def read_root():
     return {
         "app": "Komparo API",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "status": "running",
         "message": "Listas que comparan, decisiones que ahorran",
         "docs": "/docs",
@@ -181,18 +218,23 @@ def _issue_token(user: User) -> Token:
 
 @app.post("/auth/register", response_model=Token, tags=["auth"])
 def register(data: UserRegister, db: Session = Depends(get_db)):
-    """Registrar nueva cuenta."""
+    """Registra una cuenta nueva y envía email de verificación."""
     if db.query(User.id).filter(User.email == data.email).first():
         raise HTTPException(400, "Email ya registrado")
 
+    raw_token = generate_opaque_token()
     user = User(
         email=data.email,
         name=data.name,
         hashed_password=hash_password(data.password),
+        verification_token=hash_token(raw_token),
+        verification_expires=utcnow() + timedelta(hours=VERIFICATION_TOKEN_HOURS),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    send_verification_email(user.email, user.name, raw_token)
     return _issue_token(user)
 
 
@@ -201,16 +243,122 @@ def login(
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    """Login con email/password."""
+    """Login con email/password. Bloquea tras N intentos fallidos."""
     user = db.query(User).filter(User.email == form.username).first()
-    if not user or not verify_password(form.password, user.hashed_password):
+
+    # No revelar si el email existe
+    if not user:
         raise HTTPException(401, "Email o contraseña incorrectos")
+
+    if is_locked_out(user):
+        remaining = int((user.lockout_until - utcnow()).total_seconds() / 60) + 1
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Cuenta bloqueada temporalmente. Reintenta en {remaining} minutos.",
+        )
+
+    if not verify_password(form.password, user.hashed_password):
+        register_failed_login(user)
+        db.commit()
+        remaining_attempts = MAX_FAILED_LOGINS - (user.failed_login_count or 0)
+        if user.lockout_until and user.lockout_until > utcnow():
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Demasiados intentos. Cuenta bloqueada 15 minutos.",
+            )
+        raise HTTPException(
+            401,
+            f"Email o contraseña incorrectos. Intentos restantes: {remaining_attempts}",
+        )
+
+    reset_failed_logins(user)
+    db.commit()
     return _issue_token(user)
 
 
 @app.get("/auth/me", response_model=UserOut, tags=["auth"])
 def get_me(user: User = Depends(get_current_user)):
     return user
+
+
+@app.post("/auth/verify-email", response_model=MessageOut, tags=["auth"])
+def verify_email(data: VerifyEmailIn, db: Session = Depends(get_db)):
+    """Marca el email del usuario como verificado."""
+    token_hash = hash_token(data.token)
+    user = db.query(User).filter(User.verification_token == token_hash).first()
+    if not user:
+        raise HTTPException(400, "Token de verificación inválido")
+    if user.verification_expires and user.verification_expires < utcnow():
+        raise HTTPException(400, "El token ha caducado, pide otro")
+
+    user.email_verified = True
+    user.verification_token = None
+    user.verification_expires = None
+    db.commit()
+    return MessageOut(message="Email verificado correctamente")
+
+
+@app.post("/auth/resend-verification", response_model=MessageOut, tags=["auth"])
+def resend_verification(
+    data: ResendVerificationIn,
+    db: Session = Depends(get_db),
+):
+    """Reenvía el email de verificación. Respuesta neutra (no revela emails)."""
+    user = db.query(User).filter(User.email == data.email).first()
+    neutral = MessageOut(message="Si el email existe, se ha enviado un nuevo enlace")
+    if not user or user.email_verified:
+        return neutral
+
+    raw_token = generate_opaque_token()
+    user.verification_token = hash_token(raw_token)
+    user.verification_expires = utcnow() + timedelta(hours=VERIFICATION_TOKEN_HOURS)
+    db.commit()
+
+    send_verification_email(user.email, user.name, raw_token)
+    return neutral
+
+
+@app.post("/auth/forgot-password", response_model=MessageOut, tags=["auth"])
+def forgot_password(data: ForgotPasswordIn, db: Session = Depends(get_db)):
+    """Envía un email con enlace de restablecimiento. Respuesta neutra."""
+    user = db.query(User).filter(User.email == data.email).first()
+    neutral = MessageOut(message="Si el email existe, se ha enviado un enlace")
+    if not user:
+        return neutral
+
+    raw_token = generate_opaque_token()
+    db.add(PasswordResetToken(
+        user_id=user.id,
+        token_hash=hash_token(raw_token),
+        expires_at=utcnow() + timedelta(minutes=PASSWORD_RESET_TOKEN_MINUTES),
+    ))
+    db.commit()
+
+    send_password_reset_email(user.email, user.name, raw_token)
+    return neutral
+
+
+@app.post("/auth/reset-password", response_model=MessageOut, tags=["auth"])
+def reset_password(data: ResetPasswordIn, db: Session = Depends(get_db)):
+    """Establece una nueva contraseña a partir del token recibido por email."""
+    token_hash = hash_token(data.token)
+    record = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token_hash == token_hash)
+        .first()
+    )
+    if not record or record.used or record.expires_at < utcnow():
+        raise HTTPException(400, "Token inválido o caducado")
+
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user:
+        raise HTTPException(400, "Token inválido")
+
+    user.hashed_password = hash_password(data.new_password)
+    record.used = True
+    reset_failed_logins(user)
+    db.commit()
+    return MessageOut(message="Contraseña actualizada correctamente")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -250,18 +398,15 @@ DEMO_PRODUCTS = {
 
 
 def _stable_hash(text: str, modulo: int) -> int:
-    """Hash determinista (`hash()` cambia entre procesos en Python)."""
     digest = hashlib.md5(text.encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % modulo
 
 
 def _fallback_prices(name: str) -> dict[str, float]:
-    """Precios fake estables para productos no encontrados en demo."""
     return {sm: round(1.5 + _stable_hash(name + sm, 50) / 10, 2) for sm in _SUPERMARKET_IDS}
 
 
 def _lookup_demo_prices(name: str) -> dict[str, float]:
-    """Busca un producto demo por palabra clave, o devuelve precios fallback."""
     name_lower = name.lower()
     for keyword, products in DEMO_PRODUCTS.items():
         if keyword in name_lower:
@@ -288,10 +433,12 @@ def search_products(q: str = ""):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# SHOPPING LISTS (Cestas)
+# SHOPPING LISTS
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _get_owned_list(db: Session, list_id: str, user: User, eager_items: bool = False) -> ShoppingList:
+def _get_owned_list(
+    db: Session, list_id: str, user: User, eager_items: bool = False
+) -> ShoppingList:
     query = db.query(ShoppingList)
     if eager_items:
         query = query.options(selectinload(ShoppingList.items))
@@ -416,156 +563,76 @@ def compare_list(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# RECIPES
+# RECIPES (servidas desde la BD)
 # ──────────────────────────────────────────────────────────────────────────────
 
-DEMO_RECIPES = [
-    {
-        "id": "recipe_1",
-        "title": "Espaguetis a la carbonara",
-        "description": "Pasta italiana clásica cremosa",
-        "image_url": "https://via.placeholder.com/300x200?text=Carbonara",
-        "servings": 4,
-        "time_minutes": 20,
-        "difficulty": "fácil",
-        "category": "platos-principales",
-        "ingredients": [
-            {"name": "espaguetis", "quantity": "400", "unit": "g"},
-            {"name": "huevos", "quantity": "4", "unit": "ud"},
-            {"name": "bacon", "quantity": "200", "unit": "g"},
-            {"name": "queso parmesano", "quantity": "100", "unit": "g"},
-        ],
-    },
-    {
-        "id": "recipe_2",
-        "title": "Salmón a la mantequilla",
-        "description": "Salmón tierno y jugoso",
-        "image_url": "https://via.placeholder.com/300x200?text=Salmon",
-        "servings": 4,
-        "time_minutes": 25,
-        "difficulty": "fácil",
-        "category": "pescados",
-        "ingredients": [
-            {"name": "salmón fresco", "quantity": "800", "unit": "g"},
-            {"name": "mantequilla", "quantity": "100", "unit": "g"},
-            {"name": "limón", "quantity": "2", "unit": "ud"},
-        ],
-    },
-    {
-        "id": "recipe_3",
-        "title": "Pollo al curry",
-        "description": "Curry cremoso con pollo tierno",
-        "image_url": "https://via.placeholder.com/300x200?text=Curry",
-        "servings": 4,
-        "time_minutes": 40,
-        "difficulty": "media",
-        "category": "carnes",
-        "ingredients": [
-            {"name": "pechuga de pollo", "quantity": "800", "unit": "g"},
-            {"name": "curry en polvo", "quantity": "3", "unit": "cucharadas"},
-            {"name": "leche de coco", "quantity": "400", "unit": "ml"},
-            {"name": "cebolla", "quantity": "2", "unit": "ud"},
-        ],
-    },
-    {
-        "id": "recipe_4",
-        "title": "Tortilla de patatas",
-        "description": "El clásico español",
-        "image_url": "https://via.placeholder.com/300x200?text=Tortilla",
-        "servings": 6,
-        "time_minutes": 35,
-        "difficulty": "media",
-        "category": "platos-principales",
-        "ingredients": [
-            {"name": "patatas", "quantity": "1", "unit": "kg"},
-            {"name": "huevos", "quantity": "6", "unit": "ud"},
-            {"name": "cebolla", "quantity": "1", "unit": "ud"},
-            {"name": "aceite oliva", "quantity": "200", "unit": "ml"},
-        ],
-    },
-    {
-        "id": "recipe_5",
-        "title": "Gazpacho andaluz",
-        "description": "Sopa fría refrescante",
-        "image_url": "https://via.placeholder.com/300x200?text=Gazpacho",
-        "servings": 4,
-        "time_minutes": 15,
-        "difficulty": "fácil",
-        "category": "platos-principales",
-        "ingredients": [
-            {"name": "tomate", "quantity": "1000", "unit": "g"},
-            {"name": "pepino", "quantity": "1", "unit": "ud"},
-            {"name": "pimiento rojo", "quantity": "1", "unit": "ud"},
-            {"name": "ajo", "quantity": "2", "unit": "dientes"},
-        ],
-    },
-    {
-        "id": "recipe_6",
-        "title": "Tarta de chocolate",
-        "description": "Postre clásico y delicioso",
-        "image_url": "https://via.placeholder.com/300x200?text=Tarta",
-        "servings": 8,
-        "time_minutes": 45,
-        "difficulty": "media",
-        "category": "postres",
-        "ingredients": [
-            {"name": "chocolate negro", "quantity": "300", "unit": "g"},
-            {"name": "mantequilla", "quantity": "200", "unit": "g"},
-            {"name": "huevos", "quantity": "6", "unit": "ud"},
-            {"name": "azúcar", "quantity": "200", "unit": "g"},
-            {"name": "harina", "quantity": "100", "unit": "g"},
-        ],
-    },
-]
-_RECIPES_BY_ID = {r["id"]: r for r in DEMO_RECIPES}
+def _serialize_recipe(r: Recipe) -> dict:
+    return {
+        "id": r.id,
+        "title": r.title,
+        "description": r.description,
+        "image_url": r.image_url,
+        "servings": r.servings,
+        "time_minutes": r.time_minutes,
+        "difficulty": r.difficulty,
+        "category": r.category,
+        "ingredients": r.ingredients or [],
+    }
 
 
 @app.get("/recipes", tags=["recipes"])
 def get_recipes(
     category: Optional[str] = None,
     difficulty: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
-    recipes = [
-        r for r in DEMO_RECIPES
-        if (not category or r["category"] == category)
-        and (not difficulty or r["difficulty"] == difficulty)
-    ]
-    return {"recipes": recipes, "total": len(recipes)}
+    query = db.query(Recipe)
+    if category:
+        query = query.filter(Recipe.category == category)
+    if difficulty:
+        query = query.filter(Recipe.difficulty == difficulty)
+    recipes = query.order_by(Recipe.title.asc()).all()
+    return {
+        "recipes": [_serialize_recipe(r) for r in recipes],
+        "total": len(recipes),
+    }
 
 
 @app.get("/recipes/{recipe_id}", tags=["recipes"])
-def get_recipe(recipe_id: str):
-    recipe = _RECIPES_BY_ID.get(recipe_id)
+def get_recipe(recipe_id: str, db: Session = Depends(get_db)):
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
     if not recipe:
         raise HTTPException(404, "Receta no encontrada")
-    return recipe
+    return _serialize_recipe(recipe)
 
 
-@app.post("/recipes/{recipe_id}/create-list", response_model=ListOut, tags=["recipes"])
+@app.post(
+    "/recipes/{recipe_id}/create-list", response_model=ListOut, tags=["recipes"]
+)
 def create_list_from_recipe(
     recipe_id: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Crear cesta automáticamente desde una receta."""
-    recipe = _RECIPES_BY_ID.get(recipe_id)
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
     if not recipe:
         raise HTTPException(404, "Receta no encontrada")
 
     new_list = ShoppingList(
         user_id=user.id,
-        name=recipe["title"],
+        name=recipe.title,
         emoji="🍳",
     )
     db.add(new_list)
     db.flush()
 
-    for ing in recipe["ingredients"]:
+    for ing in recipe.ingredients or []:
         db.add(ListItem(
             list_id=new_list.id,
-            name=f"{ing['quantity']} {ing['unit']} {ing['name']}",
+            name=f"{ing.get('quantity', '')} {ing.get('unit', '')} {ing.get('name', '')}".strip(),
             quantity=1,
-            notes=f"De receta: {recipe['title']}",
+            notes=f"De receta: {recipe.title}",
         ))
 
     db.commit()

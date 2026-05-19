@@ -2,22 +2,17 @@
 db/models.py — Modelos de la base de datos
 """
 import uuid
-from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column, String, Integer, Boolean, DateTime, Text, ForeignKey, JSON,
 )
 from sqlalchemy.orm import relationship
 
-from db.database import Base
+from db.database import Base, utcnow as _utcnow
 
 
 def gen_uuid() -> str:
     return str(uuid.uuid4())
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class User(Base):
@@ -33,6 +28,16 @@ class User(Base):
     postal_code = Column(String, default="28001")
     is_premium = Column(Boolean, default=False)
     created_at = Column(DateTime, default=_utcnow)
+
+    # Verificación de email
+    email_verified = Column(Boolean, default=False, nullable=False)
+    verification_token = Column(String(64), nullable=True, index=True)
+    verification_expires = Column(DateTime, nullable=True)
+
+    # Lockout por intentos fallidos
+    failed_login_count = Column(Integer, default=0, nullable=False)
+    last_failed_login = Column(DateTime, nullable=True)
+    lockout_until = Column(DateTime, nullable=True)
 
     lists = relationship(
         "ShoppingList", back_populates="owner", cascade="all, delete-orphan"
@@ -86,4 +91,16 @@ class Recipe(Base):
     ingredients = Column(JSON)
     instructions = Column(Text)
     source = Column(String)
+    created_at = Column(DateTime, default=_utcnow)
+
+
+class PasswordResetToken(Base):
+    """Tokens de recuperación de contraseña (hasheados, de un solo uso)."""
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=_utcnow)

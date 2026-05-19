@@ -1,19 +1,13 @@
 """
 Modelos de base de datos para productos y precios reales.
 """
-from datetime import datetime, timezone
-
 from sqlalchemy import (
     Column, String, DateTime, Boolean, ForeignKey, Numeric, Integer, Text,
     UniqueConstraint, Index,
 )
 
-from db.database import Base
+from db.database import Base, utcnow as _utcnow
 from db.models import gen_uuid
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class Product(Base):
