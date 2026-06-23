@@ -1,0 +1,43 @@
+name: Scrapeo de precios (respaldo)
+
+# Ejecuta los scrapers desde los runners de GitHub (internet abierto) y escribe
+# directamente en la base de datos de producción. Sirve de respaldo al
+# planificador interno de la app, útil si el servicio web "duerme".
+#
+# Secretos necesarios (Settings → Secrets and variables → Actions):
+#   DATABASE_URL        Cadena de conexión PÚBLICA del PostgreSQL de Railway
+#                       (Railway → Postgres → Connect → Public Network).
+#   SCRAPERAPI_KEY      (opcional) clave del proxy anti-bloqueo.
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # todos los días a las 04:00 UTC
+  workflow_dispatch: {} # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar scrapers
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+          SCRAPERAPI_COUNTRY: es
+          PRODUCTS_PER_CATEGORY: "30"
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Falta el secreto DATABASE_URL. Añádelo en Settings → Secrets → Actions."
+            exit 1
+          fi
+          python -m scrapers.run_scrapers

@@ -96,6 +96,21 @@ sola con ScraperAPI). Comprueba si está activo en `GET /admin/scrapers/status`
 > Estos servicios son de pago. El proxy es **opcional**: la app funciona sin él,
 > pero con un volumen alto de scrapeo es muy recomendable para evitar bloqueos.
 
+## Respaldo: scrapeo desde GitHub Actions
+
+El repo incluye `.github/workflows/scrape.yml`, que ejecuta los scrapers a diario
+desde los runners de GitHub (internet abierto) y escribe en la BD de producción.
+Es un respaldo del planificador interno, útil si el servicio web se duerme.
+
+Para activarlo, añade en **GitHub → Settings → Secrets and variables → Actions**:
+
+| Secreto | Valor |
+|---------|-------|
+| `DATABASE_URL` | conexión **pública** del Postgres de Railway (Postgres → Connect → Public Network) |
+| `SCRAPERAPI_KEY` | (opcional) clave del proxy anti-bloqueo |
+
+Puedes lanzarlo a mano desde la pestaña **Actions → Scrapeo de precios → Run workflow**.
+
 ## Probar en el móvil sin desplegar (misma WiFi)
 
 Si tu teléfono está en la misma red que tu ordenador:
