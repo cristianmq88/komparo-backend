@@ -63,7 +63,9 @@ class PriceSaver:
                 stats["errors"] += 1
         
         self.db.commit()
-        self._finish_run(run, stats, success=stats["errors"] < stats["scraped"] // 2)
+        # Éxito si se guardó algo y los errores no superan la mitad del lote.
+        success = stats["scraped"] > 0 and stats["errors"] <= stats["scraped"] // 2
+        self._finish_run(run, stats, success=success)
         
         return stats
     

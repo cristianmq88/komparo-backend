@@ -621,6 +621,13 @@ async def startup_event():
     else:
         logger.warning("⚠️ Sin PostgreSQL - usando SQLite local")
 
+    # Arrancar el planificador de scrapers (scrapeo real automático).
+    try:
+        from scrapers.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        logger.warning(f"⚠️ No se pudo arrancar el planificador: {e}")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # FRONTEND (SPA)

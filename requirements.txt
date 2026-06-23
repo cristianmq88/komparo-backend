@@ -22,3 +22,6 @@ python-dotenv==1.0.1
 # Scrapers
 requests==2.31.0
 httpx==0.25.2
+
+# Planificador (scrapeo automático diario)
+APScheduler==3.10.4

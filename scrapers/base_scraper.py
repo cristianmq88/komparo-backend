@@ -10,6 +10,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+import requests
+from requests.adapters import HTTPAdapter
+
+try:  # urllib3 >= 1.26
+    from urllib3.util.retry import Retry
+except ImportError:  # pragma: no cover
+    from requests.packages.urllib3.util.retry import Retry
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,6 +92,16 @@ class BaseScraper(ABC):
     MAX_RETRIES: int = 3
     TIMEOUT: int = 30
     
+    # Cabeceras por defecto; cada scraper puede sobreescribir HEADERS.
+    HEADERS: dict = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+        "Accept-Language": "es-ES,es;q=0.9",
+    }
+
     def __init__(self, postal_code: str = "28001"):
         """
         Args:
@@ -91,7 +109,23 @@ class BaseScraper(ABC):
         """
         self.postal_code = postal_code
         self.result = ScraperResult(supermarket=self.SUPERMARKET_ID)
-        self.session = None
+        self.session = self._build_session()
+
+    def _build_session(self) -> requests.Session:
+        """Sesión HTTP reutilizable con reintentos automáticos y backoff."""
+        session = requests.Session()
+        retries = Retry(
+            total=self.MAX_RETRIES,
+            backoff_factor=1.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET"]),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers.update(self.HEADERS)
+        return session
     
     @abstractmethod
     def scrape_category(self, category: str, limit: int = 50) -> list[ScrapedProduct]:
