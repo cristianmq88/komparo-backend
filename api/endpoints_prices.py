@@ -285,7 +285,20 @@ def scrapers_status(db: Session = Depends(get_db)):
             )
         }
     
-    return {"scrapers": status, "checked_at": datetime.utcnow().isoformat()}
+    try:
+        from scrapers.proxy import proxy_manager
+        proxy_info = {
+            "enabled": proxy_manager.enabled,
+            "rotating_proxies": len(proxy_manager.proxies),
+        }
+    except Exception:
+        proxy_info = {"enabled": False, "rotating_proxies": 0}
+
+    return {
+        "scrapers": status,
+        "proxy": proxy_info,
+        "checked_at": datetime.utcnow().isoformat(),
+    }
 
 
 def _run_scrapers_task(supermarket: Optional[str]):

@@ -83,7 +83,7 @@ class CarrefourScraper(BaseScraper):
         }
         
         try:
-            response = self.session.get(
+            response = self.fetch(
                 self.SEARCH_URL,
                 params=params,
                 headers=self.HEADERS,

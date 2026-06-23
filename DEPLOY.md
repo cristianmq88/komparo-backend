@@ -58,9 +58,43 @@ curl "https://TU-URL/admin/scrapers/status"
 > ⚠️ **Importante sobre el scrapeo:** los scrapers usan las APIs internas de cada
 > supermercado (Mercadona, Carrefour, Dia, Alcampo). Estas pueden cambiar su
 > estructura o bloquear peticiones en cualquier momento; es la parte más frágil del
-> sistema y puede requerir mantenimiento o un proxy anti-bloqueo (ScraperAPI,
-> BrightData…). La app está preparada para que, en cuanto un scraper devuelva datos,
+> sistema. La app está preparada para que, en cuanto un scraper devuelva datos,
 > aparezcan automáticamente; si un súper deja de funcionar, los demás siguen.
+
+## Proxy anti-bloqueo (recomendado en producción)
+
+Para reducir los bloqueos por IP, los scrapers pueden enrutar las peticiones a
+través de un **proxy rotativo** y además rotan el User-Agent automáticamente. Se
+activa con variables de entorno; si no configuras nada, van directos.
+
+Elige **un** modo:
+
+**1) ScraperAPI** (el más sencillo; rota la IP en su servidor):
+
+| Variable | Ejemplo | Descripción |
+|----------|---------|-------------|
+| `SCRAPERAPI_KEY` | `abc123...` | Tu API key de scraperapi.com |
+| `SCRAPERAPI_COUNTRY` | `es` | País de salida (opcional) |
+| `SCRAPERAPI_RENDER` | `false` | `true` ejecuta JS (gasta más créditos) |
+
+**2) Gateway único** (BrightData, Smartproxy, Oxylabs…):
+
+| Variable | Ejemplo |
+|----------|---------|
+| `SCRAPER_PROXY_URL` | `http://usuario:pass@gateway.proveedor.com:22225` |
+
+**3) Lista de proxies con rotación local** (round-robin):
+
+| Variable | Ejemplo |
+|----------|---------|
+| `SCRAPER_PROXIES` | `http://u:p@ip1:8000,http://u:p@ip2:8000` |
+
+Otras: `SCRAPER_PROXY_VERIFY=false` desactiva la verificación TLS (se desactiva
+sola con ScraperAPI). Comprueba si está activo en `GET /admin/scrapers/status`
+(campo `proxy.enabled`).
+
+> Estos servicios son de pago. El proxy es **opcional**: la app funciona sin él,
+> pero con un volumen alto de scrapeo es muy recomendable para evitar bloqueos.
 
 ## Probar en el móvil sin desplegar (misma WiFi)
 

@@ -28,6 +28,23 @@ services:
         fromDatabase:
           name: komparo-db
           property: connectionString
+      # ── Proxy anti-bloqueo (opcional pero recomendado en producción) ──
+      # Descomenta y rellena UNO de los modos. Si lo dejas vacío, los
+      # scrapers van directos (más probabilidad de bloqueo).
+      #
+      # Modo ScraperAPI (gateway, rota IP en el servidor):
+      # - key: SCRAPERAPI_KEY
+      #   sync: false            # introduce el valor en el panel de Render
+      # - key: SCRAPERAPI_COUNTRY
+      #   value: "es"
+      #
+      # Modo gateway único (BrightData, Smartproxy, Oxylabs…):
+      # - key: SCRAPER_PROXY_URL
+      #   sync: false
+      #
+      # Modo lista de proxies con rotación local (separados por coma):
+      # - key: SCRAPER_PROXIES
+      #   sync: false
 
 databases:
   - name: komparo-db

@@ -80,7 +80,7 @@ class MercadonaScraper(BaseScraper):
         params = {"wh": "mad1"}  # Warehouse Madrid 1 (ajustar si hace falta)
         
         try:
-            response = self.session.get(
+            response = self.fetch(
                 url,
                 params=params,
                 headers=self.headers,

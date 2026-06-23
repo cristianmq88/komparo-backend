@@ -18,6 +18,8 @@ try:  # urllib3 >= 1.26
 except ImportError:  # pragma: no cover
     from requests.packages.urllib3.util.retry import Retry
 
+from .proxy import proxy_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,6 +128,29 @@ class BaseScraper(ABC):
         session.mount("http://", adapter)
         session.headers.update(self.HEADERS)
         return session
+
+    def fetch(self, url: str, params: Optional[dict] = None, headers: Optional[dict] = None,
+              **kwargs) -> requests.Response:
+        """
+        GET con proxy anti-bloqueo y rotación de User-Agent.
+
+        Si hay proxy configurado (ver scrapers/proxy.py) enruta la petición a
+        través de él y rota la IP/UA; si no, va directo. Centraliza timeout,
+        verificación TLS y reintentos para todos los scrapers.
+        """
+        kwargs.setdefault("timeout", self.TIMEOUT)
+
+        proxies = proxy_manager.next_proxies()
+        if proxies:
+            kwargs["proxies"] = proxies
+            kwargs.setdefault("verify", proxy_manager.verify)
+
+        # Rotar User-Agent por petición (manteniendo el resto de cabeceras,
+        # p. ej. el Referer, que algunos súper exigen).
+        req_headers = dict(headers) if headers else {}
+        req_headers["User-Agent"] = proxy_manager.random_user_agent()
+
+        return self.session.get(url, params=params, headers=req_headers, **kwargs)
     
     @abstractmethod
     def scrape_category(self, category: str, limit: int = 50) -> list[ScrapedProduct]:
