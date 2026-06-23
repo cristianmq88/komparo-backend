@@ -12,9 +12,14 @@ Endpoints añadidos:
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import os
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 # Imports del backend
 from db.database import get_db
@@ -281,3 +286,44 @@ def scrapers_status(db: Session = Depends(get_db)):
         }
     
     return {"scrapers": status, "checked_at": datetime.utcnow().isoformat()}
+
+
+def _run_scrapers_task(supermarket: Optional[str]):
+    """Tarea en segundo plano que ejecuta uno o todos los scrapers."""
+    try:
+        from scrapers.run_scrapers import run_scraper, run_all
+        if supermarket:
+            run_scraper(supermarket)
+        else:
+            run_all()
+    except Exception as e:  # pragma: no cover - logging defensivo
+        logger.error(f"Fallo lanzando scrapers: {e}", exc_info=True)
+
+
+@admin_router.post("/run")
+def trigger_scrapers(
+    background_tasks: BackgroundTasks,
+    supermarket: Optional[str] = Query(
+        None, description="ID del súper a raspar; vacío = todos"
+    ),
+    x_admin_token: Optional[str] = Header(None),
+):
+    """
+    Lanza los scrapers en segundo plano para poblar los precios reales.
+
+    Protegido con la variable de entorno ADMIN_TOKEN: hay que enviar la
+    cabecera `X-Admin-Token` con ese valor. Si ADMIN_TOKEN no está
+    configurada, el endpoint queda deshabilitado por seguridad.
+    """
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if not admin_token:
+        raise HTTPException(503, "Scrapers deshabilitados: configura ADMIN_TOKEN")
+    if x_admin_token != admin_token:
+        raise HTTPException(401, "Token de administración inválido")
+
+    background_tasks.add_task(_run_scrapers_task, supermarket)
+    return {
+        "message": "Scrapers lanzados en segundo plano",
+        "supermarket": supermarket or "todos",
+        "note": "Consulta /admin/scrapers/status para ver el progreso",
+    }

@@ -6,11 +6,18 @@ recetas en listas.
 
 ## Funcionalidades
 
-- 🔐 **Registro e inicio de sesión** (JWT, guardado en `localStorage`)
-- 🔍 **Búsqueda de productos** con comparativa visual de precios por súper
+- 🔐 **Cuenta**: registro, inicio de sesión (JWT), edición de perfil, **cambio de
+  contraseña** y **eliminación de cuenta** (RGPD)
+- 🔍 **Búsqueda de precios reales** con imagen, marca y comparativa visual por súper
+- 📊 **Ficha de producto**: precio en cada supermercado y enlaces de compra
 - 🧺 **Cestas de la compra**: crear, añadir/quitar productos y eliminar
-- 💰 **Comparar cesta** entre los 8 supermercados, con ranking y ahorro
+- 💰 **Comparar cesta** con **precios reales**, ranking y ahorro
 - 🍳 **Recetas**: explorar por categoría y crear una cesta con sus ingredientes
+- 📱 **PWA instalable** y diseño responsive (barra de navegación inferior en móvil)
+- ⚖️ **Páginas legales**: privacidad, términos y cookies + banner de consentimiento
+
+> Los precios reales los pueblan los scrapers del backend. Consulta
+> [`../DEPLOY.md`](../DEPLOY.md) para desplegar y verlo en el móvil.
 
 ## Requisitos
 

@@ -31,9 +31,14 @@ export default function Navbar() {
             </NavLink>
           )}
           {user ? (
-            <button className="btn btn-ghost btn-sm" onClick={handleLogout}>
-              Salir
-            </button>
+            <>
+              <NavLink to="/settings" className="nav-link">
+                Mi cuenta
+              </NavLink>
+              <button className="btn btn-ghost btn-sm" onClick={handleLogout}>
+                Salir
+              </button>
+            </>
           ) : (
             <NavLink to="/login" className="btn btn-primary btn-sm">
               Entrar

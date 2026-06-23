@@ -1,9 +1,10 @@
 // Cliente HTTP ligero para la API de Komparo.
 //
-// En desarrollo todas las llamadas van a /api/* y Vite las redirige al
-// backend (ver vite.config.js). En producción se puede sobreescribir con
-// VITE_API_BASE para apuntar directamente al backend desplegado.
-const BASE = import.meta.env.VITE_API_BASE || "/api";
+// - En desarrollo: BASE = "/api" y Vite hace proxy al backend (vite.config.js).
+// - En producción de despliegue único (FastAPI sirve la web): se compila con
+//   VITE_API_BASE="" para que las llamadas vayan al mismo origen (/auth/login…).
+// - Para frontend y backend separados: VITE_API_BASE = URL absoluta del backend.
+const BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
 const TOKEN_KEY = "komparo_token";
 
@@ -31,7 +32,6 @@ async function request(path, { method = "GET", body, form, auth = true } = {}) {
 
   let payload;
   if (form) {
-    // OAuth2PasswordRequestForm espera application/x-www-form-urlencoded
     headers["Content-Type"] = "application/x-www-form-urlencoded";
     payload = new URLSearchParams(form).toString();
   } else if (body !== undefined) {
@@ -79,11 +79,21 @@ export const api = {
   login: (email, password) =>
     request("/auth/login", { method: "POST", auth: false, form: { username: email, password } }),
   me: () => request("/auth/me"),
+  updateProfile: (data) => request("/auth/me", { method: "PUT", body: data }),
+  changePassword: (current_password, new_password) =>
+    request("/auth/change-password", { method: "POST", body: { current_password, new_password } }),
+  deleteAccount: (password) =>
+    request("/auth/me", { method: "DELETE", body: { password } }),
 
   // ── Datos públicos ────────────────────────────────────
   supermarkets: () => request("/supermarkets", { auth: false }),
-  searchProducts: (q) =>
-    request(`/products/search?q=${encodeURIComponent(q)}`, { auth: false }),
+
+  // Precios reales (poblados por los scrapers)
+  searchRealProducts: (q) =>
+    request(`/products/real/search?q=${encodeURIComponent(q)}`, { auth: false }),
+  productPrices: (id) => request(`/products/real/${id}/prices`, { auth: false }),
+  productHistory: (id, days = 30) =>
+    request(`/products/real/${id}/history?days=${days}`, { auth: false }),
 
   // ── Listas / cestas ───────────────────────────────────
   getLists: () => request("/lists"),
@@ -93,7 +103,9 @@ export const api = {
     request(`/lists/${listId}/items`, { method: "POST", body: item }),
   removeItem: (listId, itemId) =>
     request(`/lists/${listId}/items/${itemId}`, { method: "DELETE" }),
-  compareList: (listId) => request(`/lists/${listId}/compare`),
+  // Comparativa con precios reales
+  compareListReal: (listId) =>
+    request(`/products/real/compare-list?list_id=${encodeURIComponent(listId)}`, { method: "POST" }),
 
   // ── Recetas ───────────────────────────────────────────
   getRecipes: (params = {}) => {

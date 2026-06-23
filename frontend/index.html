@@ -2,13 +2,27 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/komparo.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Komparo · Compara y ahorra</title>
     <meta
       name="description"
       content="Komparo - Compara precios de supermercados y ahorra en tu compra"
     />
-    <title>Komparo · Compara y ahorra</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0e8c5a" />
+    <link rel="icon" type="image/svg+xml" href="/komparo.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+
+    <!-- iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Komparo" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <div id="root"></div>
