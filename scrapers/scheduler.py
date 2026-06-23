@@ -8,6 +8,8 @@ Cuando la app arranca:
 
 Todo es configurable por variables de entorno:
   ENABLE_SCHEDULER     "1"/"true" para activar (por defecto activado)
+  ENABLE_DAILY_SCRAPE  scrapeo diario interno (def. activado). Ponlo a "false"
+                       si el diario lo hace GitHub Actions (IPs rotativas).
   SCRAPE_HOUR          hora UTC de la ejecución diaria (por defecto 4)
   SCRAPE_ON_STARTUP    "1"/"true" para poblar al arrancar si está vacío (def. activado)
   PRODUCTS_PER_CATEGORY  productos por categoría y súper (por defecto 30)
@@ -98,16 +100,20 @@ def start_scheduler():
     except ValueError:
         pass
 
-    # Ejecución diaria
-    scheduler.add_job(
-        _run_all_job,
-        CronTrigger(hour=hour, minute=0),
-        id="daily_scrape",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    logger.info(f"🗓️ Scrapeo diario programado a las {hour:02d}:00 UTC")
+    # Ejecución diaria (desactivable: útil si el scrapeo diario lo hace
+    # GitHub Actions desde IPs rotativas para evitar bloqueos).
+    if _env_flag("ENABLE_DAILY_SCRAPE", True):
+        scheduler.add_job(
+            _run_all_job,
+            CronTrigger(hour=hour, minute=0),
+            id="daily_scrape",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        logger.info(f"🗓️ Scrapeo diario programado a las {hour:02d}:00 UTC")
+    else:
+        logger.info("⏭️ Scrapeo diario interno desactivado (ENABLE_DAILY_SCRAPE=false)")
 
     # Poblado inicial si está vacío (poco después de arrancar)
     if _env_flag("SCRAPE_ON_STARTUP", True):
