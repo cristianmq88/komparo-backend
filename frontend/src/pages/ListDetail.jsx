@@ -31,17 +31,10 @@ export default function ListDetail() {
 
   async function load() {
     try {
-      // El backend no expone GET /lists/{id}, así que filtramos de /lists.
-      const lists = await api.getLists();
-      const found = lists.find((l) => l.id === id);
-      if (!found) {
-        setError("Cesta no encontrada");
-        setList(false);
-        return;
-      }
+      const found = await api.getList(id);
       setList(found);
     } catch (err) {
-      setError(err.message || "No se pudo cargar la cesta");
+      setError(err.status === 404 ? "Cesta no encontrada" : err.message || "No se pudo cargar la cesta");
       setList(false);
     }
   }

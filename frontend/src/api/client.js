@@ -97,6 +97,7 @@ export const api = {
 
   // ── Listas / cestas ───────────────────────────────────
   getLists: () => request("/lists"),
+  getList: (id) => request(`/lists/${id}`),
   createList: (name, emoji) => request("/lists", { method: "POST", body: { name, emoji } }),
   deleteList: (id) => request(`/lists/${id}`, { method: "DELETE" }),
   addItem: (listId, item) =>

@@ -49,10 +49,13 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# La auth va por cabecera Authorization (Bearer), no por cookies, así que no
+# hacen falta credenciales CORS. Además, los navegadores rechazan la combinación
+# allow_origins="*" + allow_credentials=True, con lo que antes el CORS ni aplicaba.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -67,8 +70,8 @@ app.include_router(admin_router)
 
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    password: constr(min_length=6, max_length=128)
+    name: constr(min_length=1, max_length=120)
 
 
 class UserOut(BaseModel):
@@ -321,6 +324,22 @@ def search_products(q: str = ""):
 def get_my_lists(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Mis cestas"""
     return db.query(ShoppingList).filter(ShoppingList.user_id == user.id).all()
+
+
+@app.get("/lists/{list_id}", response_model=ListOut, tags=["lists"])
+def get_list(
+    list_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Una cesta concreta"""
+    lst = db.query(ShoppingList).filter(
+        ShoppingList.id == list_id,
+        ShoppingList.user_id == user.id
+    ).first()
+    if not lst:
+        raise HTTPException(404, "Cesta no encontrada")
+    return lst
 
 
 @app.post("/lists", response_model=ListOut, tags=["lists"])
@@ -620,6 +639,12 @@ async def startup_event():
         logger.info("✅ PostgreSQL conectada")
     else:
         logger.warning("⚠️ Sin PostgreSQL - usando SQLite local")
+
+    if not os.getenv("SECRET_KEY"):
+        logger.warning(
+            "🚨 SECRET_KEY no configurada: los tokens se firman con la clave "
+            "por defecto (INSEGURO en producción). Añade SECRET_KEY al entorno."
+        )
 
     # Arrancar el planificador de scrapers (scrapeo real automático).
     try:
