@@ -3,18 +3,18 @@ Modelos de base de datos para productos y precios reales.
 Añadir estos modelos al archivo models.py de tu backend en Railway.
 """
 from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, Numeric, Integer, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 import uuid
 
 from db.database import Base  # Tu Base existente
+from db.types import GUID     # UUID portable (PostgreSQL + SQLite)
 
 
 class Product(Base):
     """Catálogo maestro de productos."""
     __tablename__ = "products"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     normalized_name = Column(String(255), nullable=False, index=True)
     category = Column(String(100), index=True)
@@ -30,8 +30,8 @@ class CurrentPrice(Base):
     """Precio actual por producto+supermercado."""
     __tablename__ = "current_prices"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    product_id = Column(GUID(), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
     supermarket = Column(String(50), nullable=False)
     external_id = Column(String(100))
     price = Column(Numeric(10, 2), nullable=False)
@@ -49,8 +49,8 @@ class PriceHistory(Base):
     """Histórico de precios (para gráficos)."""
     __tablename__ = "price_history"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    product_id = Column(GUID(), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
     supermarket = Column(String(50), nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     recorded_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -60,7 +60,7 @@ class ScraperRun(Base):
     """Log de cada ejecución de un scraper."""
     __tablename__ = "scraper_runs"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     supermarket = Column(String(50), nullable=False)
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     finished_at = Column(DateTime(timezone=True))

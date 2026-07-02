@@ -16,8 +16,10 @@ from typing import Optional, List
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, constr
 
 from db.database import engine, get_db, Base
 from db.models import User, ShoppingList, ListItem, Recipe
@@ -47,10 +49,13 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# La auth va por cabecera Authorization (Bearer), no por cookies, así que no
+# hacen falta credenciales CORS. Además, los navegadores rechazan la combinación
+# allow_origins="*" + allow_credentials=True, con lo que antes el CORS ni aplicaba.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -65,8 +70,8 @@ app.include_router(admin_router)
 
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    password: constr(min_length=6, max_length=128)
+    name: constr(min_length=1, max_length=120)
 
 
 class UserOut(BaseModel):
@@ -74,9 +79,28 @@ class UserOut(BaseModel):
     email: str
     name: str
     is_premium: bool
-    
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
+
     class Config:
         from_attributes = True
+
+
+class ProfileUpdate(BaseModel):
+    name: Optional[constr(min_length=1, max_length=120)] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    postal_code: Optional[str] = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: constr(min_length=6, max_length=128)
+
+
+class AccountDelete(BaseModel):
+    password: str
 
 
 class Token(BaseModel):
@@ -124,7 +148,7 @@ class ListOut(BaseModel):
 # ROOT
 # ──────────────────────────────────────────────────────────────────────────────
 
-@app.get("/")
+@app.get("/api")
 def read_root():
     return {
         "app": "Komparo API",
@@ -185,6 +209,54 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 def get_me(user: User = Depends(get_current_user)):
     """Obtener mi perfil"""
     return user
+
+
+@app.put("/auth/me", response_model=UserOut, tags=["auth"])
+def update_me(
+    data: ProfileUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Actualizar datos del perfil (nombre, teléfono, ciudad, CP)."""
+    updates = data.dict(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(user, field, value)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.post("/auth/change-password", tags=["auth"])
+def change_password(
+    data: PasswordChange,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cambiar la contraseña verificando la actual."""
+    if not verify_password(data.current_password, user.hashed_password):
+        raise HTTPException(400, "La contraseña actual no es correcta")
+    if data.current_password == data.new_password:
+        raise HTTPException(400, "La nueva contraseña debe ser distinta")
+    user.hashed_password = hash_password(data.new_password)
+    db.commit()
+    return {"message": "Contraseña actualizada correctamente"}
+
+
+@app.delete("/auth/me", tags=["auth"])
+def delete_account(
+    data: AccountDelete,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Eliminar la cuenta de forma permanente (derecho de supresión, RGPD).
+    Borra el usuario y, en cascada, todas sus cestas y productos.
+    """
+    if not verify_password(data.password, user.hashed_password):
+        raise HTTPException(400, "Contraseña incorrecta")
+    db.delete(user)
+    db.commit()
+    return {"message": "Cuenta eliminada permanentemente"}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -252,6 +324,22 @@ def search_products(q: str = ""):
 def get_my_lists(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Mis cestas"""
     return db.query(ShoppingList).filter(ShoppingList.user_id == user.id).all()
+
+
+@app.get("/lists/{list_id}", response_model=ListOut, tags=["lists"])
+def get_list(
+    list_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Una cesta concreta"""
+    lst = db.query(ShoppingList).filter(
+        ShoppingList.id == list_id,
+        ShoppingList.user_id == user.id
+    ).first()
+    if not lst:
+        raise HTTPException(404, "Cesta no encontrada")
+    return lst
 
 
 @app.post("/lists", response_model=ListOut, tags=["lists"])
@@ -551,3 +639,45 @@ async def startup_event():
         logger.info("✅ PostgreSQL conectada")
     else:
         logger.warning("⚠️ Sin PostgreSQL - usando SQLite local")
+
+    if not os.getenv("SECRET_KEY"):
+        logger.warning(
+            "🚨 SECRET_KEY no configurada: los tokens se firman con la clave "
+            "por defecto (INSEGURO en producción). Añade SECRET_KEY al entorno."
+        )
+
+    # Arrancar el planificador de scrapers (scrapeo real automático).
+    try:
+        from scrapers.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        logger.warning(f"⚠️ No se pudo arrancar el planificador: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FRONTEND (SPA)
+# ──────────────────────────────────────────────────────────────────────────────
+# Si existe la web compilada (frontend/dist), FastAPI la sirve directamente.
+# Así un único despliegue ofrece API + web en la misma URL (ideal para móvil).
+# Las rutas de la API se declaran arriba, por lo que tienen prioridad.
+
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles que devuelve index.html en rutas no encontradas (SPA)."""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+
+
+if os.path.isdir(FRONTEND_DIST):
+    app.mount("/", SPAStaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    logger.info("✅ Frontend servido desde frontend/dist")
+else:
+    logger.info("ℹ️ frontend/dist no encontrado - API en modo solo-backend")

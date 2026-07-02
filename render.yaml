@@ -1,0 +1,51 @@
+# Blueprint de despliegue en un clic para Render (https://render.com).
+# Crea: un servicio web (Docker) que sirve API + web, y una base PostgreSQL.
+# El scrapeo real se ejecuta automáticamente (planificador integrado):
+#   - poblado inicial al arrancar si la BD está vacía
+#   - ejecución diaria a las 04:00 UTC
+#
+# Uso: Render → New → Blueprint → conecta este repo.
+services:
+  - type: web
+    name: komparo
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true        # firma de los JWT
+      - key: ADMIN_TOKEN
+        generateValue: true        # para lanzar scrapers manualmente si hace falta
+      - key: ENABLE_SCHEDULER
+        value: "true"
+      - key: SCRAPE_ON_STARTUP
+        value: "true"
+      - key: SCRAPE_HOUR
+        value: "4"
+      - key: PRODUCTS_PER_CATEGORY
+        value: "30"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: komparo-db
+          property: connectionString
+      # ── Proxy anti-bloqueo (opcional pero recomendado en producción) ──
+      # Descomenta y rellena UNO de los modos. Si lo dejas vacío, los
+      # scrapers van directos (más probabilidad de bloqueo).
+      #
+      # Modo ScraperAPI (gateway, rota IP en el servidor):
+      # - key: SCRAPERAPI_KEY
+      #   sync: false            # introduce el valor en el panel de Render
+      # - key: SCRAPERAPI_COUNTRY
+      #   value: "es"
+      #
+      # Modo gateway único (BrightData, Smartproxy, Oxylabs…):
+      # - key: SCRAPER_PROXY_URL
+      #   sync: false
+      #
+      # Modo lista de proxies con rotación local (separados por coma):
+      # - key: SCRAPER_PROXIES
+      #   sync: false
+
+databases:
+  - name: komparo-db
+    plan: free

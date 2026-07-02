@@ -9,19 +9,48 @@ Endpoints añadidos:
 - POST /lists/{id}/compare-real       → Comparativa con precios reales
 - GET  /admin/scrapers/status         → Estado de los scrapers
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import os
+import logging
+import uuid as uuid_lib
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 # Imports del backend
 from db.database import get_db
 from api.auth import get_current_user
 from db.models_prices import Product, CurrentPrice, PriceHistory, ScraperRun
 from db.models import User, ShoppingList, ListItem
- 
+from scrapers.base_scraper import ScrapedProduct
+
+
+def _hours_since(dt: Optional[datetime]) -> Optional[float]:
+    """
+    Horas transcurridas desde dt hasta ahora.
+
+    Postgres devuelve datetimes timezone-aware (columnas timestamptz) y SQLite
+    naive; normalizamos ambos a UTC para que la resta nunca lance TypeError.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+
+
+def _validate_uuid_or_404(value: str) -> None:
+    """Un id malformado debe ser un 404 limpio, no un 500 del driver."""
+    try:
+        uuid_lib.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(404, "Producto no encontrado")
+
 
 router = APIRouter(prefix="/products/real", tags=["real-prices"])
 
@@ -36,9 +65,10 @@ def search_real_products(
     Busca productos reales en la BD por nombre.
     Devuelve los productos junto con sus precios en cada súper.
     """
-    # Normalizar la query igual que hace el scraper
-    normalized = q.lower().strip()
-    
+    # Normalizar la query igual que hace el scraper (minúsculas y sin acentos),
+    # para que "salmón" encuentre el normalized_name "salmon".
+    normalized = ScrapedProduct._normalize(q)
+
     products = db.query(Product).filter(
         or_(
             Product.normalized_name.ilike(f"%{normalized}%"),
@@ -89,6 +119,7 @@ def get_product_prices(
     db: Session = Depends(get_db)
 ):
     """Devuelve los precios de un producto en todos los supermercados."""
+    _validate_uuid_or_404(product_id)
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(404, "Producto no encontrado")
@@ -125,6 +156,7 @@ def get_product_history(
     db: Session = Depends(get_db)
 ):
     """Devuelve histórico de precios para gráficos."""
+    _validate_uuid_or_404(product_id)
     since = datetime.utcnow() - timedelta(days=days)
     
     history = db.query(PriceHistory).filter(
@@ -177,8 +209,8 @@ def compare_list_with_real_prices(
     item_breakdown = []
     
     for item in shopping_list.items:
-        # Buscar producto similar
-        normalized = item.name.lower().strip()
+        # Buscar producto similar (misma normalización que el scraper)
+        normalized = ScrapedProduct._normalize(item.name)
         product = db.query(Product).filter(
             or_(
                 Product.normalized_name.ilike(f"%{normalized}%"),
@@ -274,10 +306,61 @@ def scrapers_status(db: Session = Depends(get_db)):
             "last_scrape_status": last_run.status if last_run else "never_run",
             "last_scrape_products": last_run.products_scraped if last_run else 0,
             "last_scrape_errors": last_run.errors if last_run else 0,
-            "freshness_hours": (
-                (datetime.utcnow() - latest_price.last_seen).total_seconds() / 3600
-                if latest_price else None
-            )
+            "freshness_hours": _hours_since(latest_price.last_seen if latest_price else None)
         }
     
-    return {"scrapers": status, "checked_at": datetime.utcnow().isoformat()}
+    try:
+        from scrapers.proxy import proxy_manager
+        proxy_info = {
+            "enabled": proxy_manager.enabled,
+            "rotating_proxies": len(proxy_manager.proxies),
+        }
+    except Exception:
+        proxy_info = {"enabled": False, "rotating_proxies": 0}
+
+    return {
+        "scrapers": status,
+        "proxy": proxy_info,
+        "checked_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _run_scrapers_task(supermarket: Optional[str]):
+    """Tarea en segundo plano que ejecuta uno o todos los scrapers."""
+    try:
+        from scrapers.run_scrapers import run_scraper, run_all
+        if supermarket:
+            run_scraper(supermarket)
+        else:
+            run_all()
+    except Exception as e:  # pragma: no cover - logging defensivo
+        logger.error(f"Fallo lanzando scrapers: {e}", exc_info=True)
+
+
+@admin_router.post("/run")
+def trigger_scrapers(
+    background_tasks: BackgroundTasks,
+    supermarket: Optional[str] = Query(
+        None, description="ID del súper a raspar; vacío = todos"
+    ),
+    x_admin_token: Optional[str] = Header(None),
+):
+    """
+    Lanza los scrapers en segundo plano para poblar los precios reales.
+
+    Protegido con la variable de entorno ADMIN_TOKEN: hay que enviar la
+    cabecera `X-Admin-Token` con ese valor. Si ADMIN_TOKEN no está
+    configurada, el endpoint queda deshabilitado por seguridad.
+    """
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if not admin_token:
+        raise HTTPException(503, "Scrapers deshabilitados: configura ADMIN_TOKEN")
+    if x_admin_token != admin_token:
+        raise HTTPException(401, "Token de administración inválido")
+
+    background_tasks.add_task(_run_scrapers_task, supermarket)
+    return {
+        "message": "Scrapers lanzados en segundo plano",
+        "supermarket": supermarket or "todos",
+        "note": "Consulta /admin/scrapers/status para ver el progreso",
+    }

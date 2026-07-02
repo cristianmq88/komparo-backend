@@ -10,6 +10,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+import requests
+from requests.adapters import HTTPAdapter
+
+try:  # urllib3 >= 1.26
+    from urllib3.util.retry import Retry
+except ImportError:  # pragma: no cover
+    from requests.packages.urllib3.util.retry import Retry
+
+from .proxy import proxy_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,6 +94,16 @@ class BaseScraper(ABC):
     MAX_RETRIES: int = 3
     TIMEOUT: int = 30
     
+    # Cabeceras por defecto; cada scraper puede sobreescribir HEADERS.
+    HEADERS: dict = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+        "Accept-Language": "es-ES,es;q=0.9",
+    }
+
     def __init__(self, postal_code: str = "28001"):
         """
         Args:
@@ -91,7 +111,46 @@ class BaseScraper(ABC):
         """
         self.postal_code = postal_code
         self.result = ScraperResult(supermarket=self.SUPERMARKET_ID)
-        self.session = None
+        self.session = self._build_session()
+
+    def _build_session(self) -> requests.Session:
+        """Sesión HTTP reutilizable con reintentos automáticos y backoff."""
+        session = requests.Session()
+        retries = Retry(
+            total=self.MAX_RETRIES,
+            backoff_factor=1.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET"]),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers.update(self.HEADERS)
+        return session
+
+    def fetch(self, url: str, params: Optional[dict] = None, headers: Optional[dict] = None,
+              **kwargs) -> requests.Response:
+        """
+        GET con proxy anti-bloqueo y rotación de User-Agent.
+
+        Si hay proxy configurado (ver scrapers/proxy.py) enruta la petición a
+        través de él y rota la IP/UA; si no, va directo. Centraliza timeout,
+        verificación TLS y reintentos para todos los scrapers.
+        """
+        kwargs.setdefault("timeout", self.TIMEOUT)
+
+        proxies = proxy_manager.next_proxies()
+        if proxies:
+            kwargs["proxies"] = proxies
+            kwargs.setdefault("verify", proxy_manager.verify)
+
+        # Rotar User-Agent por petición (manteniendo el resto de cabeceras,
+        # p. ej. el Referer, que algunos súper exigen).
+        req_headers = dict(headers) if headers else {}
+        req_headers["User-Agent"] = proxy_manager.random_user_agent()
+
+        return self.session.get(url, params=params, headers=req_headers, **kwargs)
     
     @abstractmethod
     def scrape_category(self, category: str, limit: int = 50) -> list[ScrapedProduct]:

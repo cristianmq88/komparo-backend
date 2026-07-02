@@ -75,7 +75,7 @@ class DiaScraper(BaseScraper):
         }
         
         try:
-            response = requests.get(
+            response = self.fetch(
                 self.SEARCH_URL,
                 params=params,
                 headers=self.HEADERS,
