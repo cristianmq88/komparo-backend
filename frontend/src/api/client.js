@@ -84,6 +84,7 @@ export const api = {
     request("/auth/change-password", { method: "POST", body: { current_password, new_password } }),
   deleteAccount: (password) =>
     request("/auth/me", { method: "DELETE", body: { password } }),
+  exportData: () => request("/auth/me/export"),
 
   // ── Datos públicos ────────────────────────────────────
   supermarkets: () => request("/supermarkets", { auth: false }),

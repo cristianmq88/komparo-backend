@@ -10,10 +10,11 @@ Endpoints:
 - Supermarkets: info de los 8 súper
 """
 import os
+import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -257,6 +258,57 @@ def delete_account(
     db.delete(user)
     db.commit()
     return {"message": "Cuenta eliminada permanentemente"}
+
+
+@app.get("/auth/me/export", tags=["auth"])
+def export_my_data(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Exportar todos mis datos personales en formato JSON descargable
+    (derecho de portabilidad, RGPD art. 20).
+    """
+    lists = db.query(ShoppingList).filter(ShoppingList.user_id == user.id).all()
+    export = {
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "account": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "phone": user.phone,
+            "address": user.address,
+            "city": user.city,
+            "postal_code": user.postal_code,
+            "is_premium": user.is_premium,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "lists": [
+            {
+                "id": lst.id,
+                "name": lst.name,
+                "emoji": lst.emoji,
+                "created_at": lst.created_at.isoformat() if lst.created_at else None,
+                "items": [
+                    {
+                        "name": item.name,
+                        "brand": item.brand,
+                        "is_white_label": item.is_white_label,
+                        "quantity": item.quantity,
+                        "notes": item.notes,
+                    }
+                    for item in lst.items
+                ],
+            }
+            for lst in lists
+        ],
+    }
+    payload = json.dumps(export, ensure_ascii=False, indent=2)
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="komparo-mis-datos.json"'},
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
