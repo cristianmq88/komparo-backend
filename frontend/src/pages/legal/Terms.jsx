@@ -8,8 +8,22 @@ export default function Terms() {
       <p className="subtle">Última actualización: 23 de junio de 2026</p>
 
       <div className="alert alert-info">
-        Plantilla orientativa. Revísala con un profesional antes de publicarla en producción.
+        Plantilla orientativa. Antes de publicarla en producción, revísala con un
+        profesional y <strong>completa los datos del titular marcados entre corchetes
+        [ ]</strong> en la sección «Identidad del titular».
       </div>
+
+      <h2>Identidad del titular (aviso legal)</h2>
+      <p>
+        En cumplimiento del artículo 10 de la Ley 34/2002 (LSSICE), se informa de que el
+        titular responsable de este servicio es:
+      </p>
+      <ul>
+        <li><strong>Titular / razón social:</strong> [RAZÓN SOCIAL O NOMBRE Y APELLIDOS]</li>
+        <li><strong>NIF / DNI:</strong> [NIF / DNI]</li>
+        <li><strong>Domicilio:</strong> [DOMICILIO FISCAL]</li>
+        <li><strong>Correo de contacto:</strong> [EMAIL DE CONTACTO]</li>
+      </ul>
 
       <h2>1. Objeto</h2>
       <p>
