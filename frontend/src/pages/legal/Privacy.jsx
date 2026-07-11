@@ -9,21 +9,14 @@ export default function Privacy() {
 
       <div className="alert alert-info">
         Este documento es una plantilla orientativa conforme al RGPD (UE 2016/679) y la
-        LOPDGDD. Antes de publicar en producción, revísalo con un profesional y
-        <strong> completa los datos del responsable marcados entre corchetes [ ]</strong>.
+        LOPDGDD. Antes de publicar en producción, revísalo con un profesional.
       </div>
 
       <h2>1. Responsable del tratamiento</h2>
-      <p>Komparo (en adelante, «la App»), cuyo responsable es:</p>
-      <ul>
-        <li><strong>Responsable:</strong> [RAZÓN SOCIAL O NOMBRE Y APELLIDOS]</li>
-        <li><strong>NIF / DNI:</strong> [NIF / DNI]</li>
-        <li><strong>Domicilio:</strong> [DOMICILIO FISCAL]</li>
-        <li><strong>Contacto:</strong> privacidad@komparo.app</li>
-      </ul>
       <p>
-        Para cualquier cuestión relativa a tus datos puedes escribir a la dirección de
-        contacto indicada arriba.
+        El responsable del tratamiento de tus datos es <strong>Cristian Martín Quesada</strong>
+        (Komparo, «la App»). Para cualquier cuestión relativa a tus datos puedes escribir a{" "}
+        <strong>privacidad@komparo.app</strong>.
       </p>
 
       <h2>2. Qué datos tratamos</h2>
