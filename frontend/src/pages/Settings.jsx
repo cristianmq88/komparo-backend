@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { api } from "../api/client";
 
 function Notice({ msg }) {
   if (!msg) return null;
@@ -32,6 +33,33 @@ export default function Settings() {
   const [delPassword, setDelPassword] = useState("");
   const [delMsg, setDelMsg] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Exportar datos
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState(null);
+
+  async function handleExport() {
+    setExportMsg(null);
+    setExporting(true);
+    try {
+      const data = await api.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "komparo-mis-datos.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportMsg({ type: "error", text: err.message });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -90,7 +118,7 @@ export default function Settings() {
           <h1>Mi cuenta</h1>
           <p className="subtle">{user?.email}</p>
         </div>
-        <button className="btn btn-ghost" onClick={() => { logout(); navigate("/login"); }}>
+        <button className="btn btn-ghost" onClick={async () => { await logout(); navigate("/login"); }}>
           Cerrar sesión
         </button>
       </div>
@@ -185,6 +213,19 @@ export default function Settings() {
           {savingPwd ? "Actualizando…" : "Actualizar contraseña"}
         </button>
       </form>
+
+      {/* Descargar mis datos (portabilidad RGPD) */}
+      <div className="card section">
+        <h3>Descargar mis datos</h3>
+        <Notice msg={exportMsg} />
+        <p className="subtle">
+          Descarga una copia de todos tus datos (cuenta, cestas y productos) en formato
+          JSON (derecho de portabilidad, RGPD).
+        </p>
+        <button className="btn btn-ghost" onClick={handleExport} disabled={exporting}>
+          {exporting ? "Preparando…" : "Descargar mis datos (JSON)"}
+        </button>
+      </div>
 
       {/* Zona peligrosa */}
       <div className="card section danger-zone">

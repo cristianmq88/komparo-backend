@@ -6,16 +6,9 @@
 // - Para frontend y backend separados: VITE_API_BASE = URL absoluta del backend.
 const BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
-const TOKEN_KEY = "komparo_token";
-
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
+// La sesión se gestiona con una cookie HttpOnly que fija el backend en el login
+// y el registro (a prueba de XSS). El navegador la envía automáticamente al ir
+// con credentials:"include", así que el frontend ya no manipula el token.
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -25,10 +18,8 @@ class ApiError extends Error {
   }
 }
 
-async function request(path, { method = "GET", body, form, auth = true } = {}) {
+async function request(path, { method = "GET", body, form } = {}) {
   const headers = {};
-  const token = getToken();
-  if (auth && token) headers["Authorization"] = `Bearer ${token}`;
 
   let payload;
   if (form) {
@@ -41,7 +32,12 @@ async function request(path, { method = "GET", body, form, auth = true } = {}) {
 
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, { method, headers, body: payload });
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers,
+      body: payload,
+      credentials: "include",
+    });
   } catch {
     throw new ApiError("No se pudo conectar con el servidor", 0);
   }
@@ -75,25 +71,27 @@ async function request(path, { method = "GET", body, form, auth = true } = {}) {
 export const api = {
   // ── Auth ──────────────────────────────────────────────
   register: (email, password, name) =>
-    request("/auth/register", { method: "POST", auth: false, body: { email, password, name } }),
+    request("/auth/register", { method: "POST", body: { email, password, name } }),
   login: (email, password) =>
-    request("/auth/login", { method: "POST", auth: false, form: { username: email, password } }),
+    request("/auth/login", { method: "POST", form: { username: email, password } }),
+  logout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/auth/me"),
   updateProfile: (data) => request("/auth/me", { method: "PUT", body: data }),
   changePassword: (current_password, new_password) =>
     request("/auth/change-password", { method: "POST", body: { current_password, new_password } }),
   deleteAccount: (password) =>
     request("/auth/me", { method: "DELETE", body: { password } }),
+  exportData: () => request("/auth/me/export"),
 
   // ── Datos públicos ────────────────────────────────────
-  supermarkets: () => request("/supermarkets", { auth: false }),
+  supermarkets: () => request("/supermarkets"),
 
   // Precios reales (poblados por los scrapers)
   searchRealProducts: (q) =>
-    request(`/products/real/search?q=${encodeURIComponent(q)}`, { auth: false }),
-  productPrices: (id) => request(`/products/real/${id}/prices`, { auth: false }),
+    request(`/products/real/search?q=${encodeURIComponent(q)}`),
+  productPrices: (id) => request(`/products/real/${id}/prices`),
   productHistory: (id, days = 30) =>
-    request(`/products/real/${id}/history?days=${days}`, { auth: false }),
+    request(`/products/real/${id}/history?days=${days}`),
 
   // ── Listas / cestas ───────────────────────────────────
   getLists: () => request("/lists"),
@@ -111,9 +109,9 @@ export const api = {
   // ── Recetas ───────────────────────────────────────────
   getRecipes: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
-    return request(`/recipes${qs ? `?${qs}` : ""}`, { auth: false });
+    return request(`/recipes${qs ? `?${qs}` : ""}`);
   },
-  getRecipe: (id) => request(`/recipes/${id}`, { auth: false }),
+  getRecipe: (id) => request(`/recipes/${id}`),
   createListFromRecipe: (id) =>
     request(`/recipes/${id}/create-list`, { method: "POST" }),
 };

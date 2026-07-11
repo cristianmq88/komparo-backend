@@ -11,6 +11,13 @@ export default function Terms() {
         Plantilla orientativa. Revísala con un profesional antes de publicarla en producción.
       </div>
 
+      <h2>Identidad del titular (aviso legal)</h2>
+      <p>
+        En cumplimiento del artículo 10 de la Ley 34/2002 (LSSICE), el titular responsable de
+        este servicio es <strong>Cristian Martín Quesada</strong>. Para cualquier consulta
+        puedes escribir a <strong>privacidad@komparo.app</strong>.
+      </p>
+
       <h2>1. Objeto</h2>
       <p>
         Komparo es una aplicación que permite buscar productos, comparar sus precios entre

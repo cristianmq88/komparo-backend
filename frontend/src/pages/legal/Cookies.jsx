@@ -16,8 +16,9 @@ export default function Cookies() {
       <h2>2. Almacenamiento técnico necesario</h2>
       <ul>
         <li>
-          <strong>komparo_token</strong> (localStorage): mantiene tu sesión iniciada para que no
-          tengas que escribir la contraseña en cada visita.
+          <strong>komparo_token</strong> (cookie HttpOnly): mantiene tu sesión iniciada de forma
+          segura —no es accesible desde JavaScript— para que no tengas que escribir la contraseña
+          en cada visita.
         </li>
         <li>
           <strong>komparo_cookie_consent</strong> (localStorage): recuerda que has visto este

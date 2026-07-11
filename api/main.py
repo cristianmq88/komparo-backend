@@ -10,10 +10,11 @@ Endpoints:
 - Supermarkets: info de los 8 súper
 """
 import os
+import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -25,7 +26,8 @@ from db.database import engine, get_db, Base
 from db.models import User, ShoppingList, ListItem, Recipe
 from api.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
+    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES,
+    set_auth_cookie, clear_auth_cookie,
 )
 from api.endpoints_prices import router as prices_router, admin_router
 
@@ -49,9 +51,14 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# La auth va por cabecera Authorization (Bearer), no por cookies, así que no
-# hacen falta credenciales CORS. Además, los navegadores rechazan la combinación
-# allow_origins="*" + allow_credentials=True, con lo que antes el CORS ni aplicaba.
+# La web se sirve desde el mismo origen que la API (ver Dockerfile: la SPA se
+# monta en "/"), por lo que la cookie de sesión HttpOnly viaja sin necesidad de
+# credenciales CORS. Mantenemos allow_origins="*" con allow_credentials=False
+# porque los navegadores rechazan la combinación "*" + credenciales.
+#
+# ⚠️ Si algún día despliegas la web en un origen DISTINTO al de la API, cambia
+# esto por una lista explícita de orígenes y allow_credentials=True, y ajusta la
+# cookie a SameSite="none"; Secure (ver api/auth.py) para que se envíe cross-site.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -169,12 +176,12 @@ def health_check():
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.post("/auth/register", response_model=Token, tags=["auth"])
-def register(data: UserRegister, db: Session = Depends(get_db)):
+def register(data: UserRegister, response: Response, db: Session = Depends(get_db)):
     """Registrar nueva cuenta"""
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
         raise HTTPException(400, "Email ya registrado")
-    
+
     user = User(
         email=data.email,
         name=data.name,
@@ -183,26 +190,39 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
     token = create_access_token(
         {"sub": user.id},
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
+    set_auth_cookie(response, token)
     return Token(access_token=token, token_type="bearer", user=UserOut.from_orm(user))
 
 
 @app.post("/auth/login", response_model=Token, tags=["auth"])
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    response: Response,
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     """Login con email/password"""
     user = db.query(User).filter(User.email == form.username).first()
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(401, "Email o contraseña incorrectos")
-    
+
     token = create_access_token(
         {"sub": user.id},
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
+    set_auth_cookie(response, token)
     return Token(access_token=token, token_type="bearer", user=UserOut.from_orm(user))
+
+
+@app.post("/auth/logout", tags=["auth"])
+def logout(response: Response):
+    """Cerrar sesión: elimina la cookie de sesión."""
+    clear_auth_cookie(response)
+    return {"message": "Sesión cerrada"}
 
 
 @app.get("/auth/me", response_model=UserOut, tags=["auth"])
@@ -245,6 +265,7 @@ def change_password(
 @app.delete("/auth/me", tags=["auth"])
 def delete_account(
     data: AccountDelete,
+    response: Response,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -256,7 +277,59 @@ def delete_account(
         raise HTTPException(400, "Contraseña incorrecta")
     db.delete(user)
     db.commit()
+    clear_auth_cookie(response)
     return {"message": "Cuenta eliminada permanentemente"}
+
+
+@app.get("/auth/me/export", tags=["auth"])
+def export_my_data(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Exportar todos mis datos personales en formato JSON descargable
+    (derecho de portabilidad, RGPD art. 20).
+    """
+    lists = db.query(ShoppingList).filter(ShoppingList.user_id == user.id).all()
+    export = {
+        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "account": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "phone": user.phone,
+            "address": user.address,
+            "city": user.city,
+            "postal_code": user.postal_code,
+            "is_premium": user.is_premium,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "lists": [
+            {
+                "id": lst.id,
+                "name": lst.name,
+                "emoji": lst.emoji,
+                "created_at": lst.created_at.isoformat() if lst.created_at else None,
+                "items": [
+                    {
+                        "name": item.name,
+                        "brand": item.brand,
+                        "is_white_label": item.is_white_label,
+                        "quantity": item.quantity,
+                        "notes": item.notes,
+                    }
+                    for item in lst.items
+                ],
+            }
+            for lst in lists
+        ],
+    }
+    payload = json.dumps(export, ensure_ascii=False, indent=2)
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="komparo-mis-datos.json"'},
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -281,39 +354,11 @@ def list_supermarkets():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# PRODUCTS (Demo data, los scrapers se añaden después)
+# PRODUCTS
 # ──────────────────────────────────────────────────────────────────────────────
-
-DEMO_PRODUCTS = {
-    "leche": [{"name": "Leche semidesnatada 1L", "prices": {"mercadona": 0.84, "alcampo": 0.88, "lidl": 0.86, "carrefour": 0.92, "dia": 0.89, "aldi": 0.85, "ahorramas": 0.91, "corteingles": 1.05}}],
-    "pan": [{"name": "Pan de molde integral", "prices": {"mercadona": 1.45, "alcampo": 1.39, "lidl": 1.29, "carrefour": 1.55, "dia": 1.42, "aldi": 1.35, "ahorramas": 1.48, "corteingles": 1.85}}],
-    "huevos": [{"name": "Huevos M docena", "prices": {"mercadona": 2.15, "alcampo": 2.05, "lidl": 1.95, "carrefour": 2.25, "dia": 2.10, "aldi": 1.99, "ahorramas": 2.20, "corteingles": 2.85}}],
-    "pollo": [{"name": "Pechuga pollo 1kg", "prices": {"mercadona": 5.99, "alcampo": 5.49, "lidl": 5.79, "carrefour": 6.25, "dia": 5.89, "aldi": 5.69, "ahorramas": 6.15, "corteingles": 7.99}}],
-    "aceite": [{"name": "Aceite oliva VE 1L", "prices": {"mercadona": 8.75, "alcampo": 7.95, "lidl": 8.20, "carrefour": 9.10, "dia": 8.40, "aldi": 8.15, "ahorramas": 8.95, "corteingles": 10.50}}],
-    "yogur": [{"name": "Yogur natural pack 4", "prices": {"mercadona": 1.20, "alcampo": 1.15, "lidl": 1.10, "carrefour": 1.35, "dia": 1.22, "aldi": 1.12, "ahorramas": 1.30, "corteingles": 1.65}}],
-}
-
-
-@app.get("/products/search", tags=["data"])
-def search_products(q: str = ""):
-    """Buscar productos (demo data)"""
-    if not q:
-        return {"products": [], "message": "Especifica un parámetro q"}
-    
-    q_lower = q.lower()
-    results = []
-    for keyword, products in DEMO_PRODUCTS.items():
-        if keyword in q_lower or q_lower in keyword:
-            results.extend(products)
-    
-    if not results:
-        # Genérico
-        results = [{
-            "name": q.title(),
-            "prices": {sm["id"]: round(1.5 + hash(q) % 50 / 10, 2) for sm in SUPERMARKETS}
-        }]
-    
-    return {"query": q, "products": results}
+# La búsqueda y la comparativa de precios REALES viven en api/endpoints_prices.py
+# (rutas /products/real/*), pobladas por los scrapers. Los antiguos endpoints de
+# demostración con precios inventados se retiraron antes del lanzamiento público.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -415,51 +460,9 @@ def remove_item(
     return {"deleted": True}
 
 
-@app.get("/lists/{list_id}/compare", tags=["lists"])
-def compare_list(
-    list_id: str,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Comparar precio de cesta en 8 súper"""
-    lst = db.query(ShoppingList).filter(
-        ShoppingList.id == list_id,
-        ShoppingList.user_id == user.id
-    ).first()
-    if not lst:
-        raise HTTPException(404, "Cesta no encontrada")
-    
-    # Calcular total por súper (demo)
-    totals = {sm["id"]: 0.0 for sm in SUPERMARKETS}
-    
-    for item in lst.items:
-        # Buscar el producto en demo
-        item_name_lower = item.name.lower()
-        for keyword, products in DEMO_PRODUCTS.items():
-            if keyword in item_name_lower:
-                product = products[0]
-                for sm_id, price in product["prices"].items():
-                    totals[sm_id] += price * item.quantity
-                break
-        else:
-            # Producto no encontrado, precio genérico
-            for sm in SUPERMARKETS:
-                totals[sm["id"]] += (2.0 + hash(item.name) % 30 / 10) * item.quantity
-    
-    # Crear ranking ordenado
-    ranking = sorted(
-        [{"supermarket": sm["id"], "name": sm["name"], "color": sm["color"], "total": round(totals[sm["id"]], 2)} for sm in SUPERMARKETS],
-        key=lambda x: x["total"]
-    )
-    
-    return {
-        "list_id": list_id,
-        "list_name": lst.name,
-        "items_count": len(lst.items),
-        "ranking": ranking,
-        "cheapest": ranking[0] if ranking else None,
-        "savings": round(ranking[-1]["total"] - ranking[0]["total"], 2) if len(ranking) > 1 else 0,
-    }
+# La comparativa de precios REALES de una cesta vive en api/endpoints_prices.py
+# (POST /products/real/compare-list), que es la que usa la web. El antiguo
+# /lists/{id}/compare con precios inventados se retiró antes del lanzamiento.
 
 
 # ──────────────────────────────────────────────────────────────────────────────

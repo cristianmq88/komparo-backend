@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { api, getToken, setToken } from "../api/client";
+import { api } from "../api/client";
 
 const AuthContext = createContext(null);
 
@@ -7,19 +7,16 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Al cargar la app, si hay token guardado intentamos recuperar el perfil.
+  // Al cargar la app intentamos recuperar el perfil: la cookie HttpOnly de
+  // sesión (si existe) viaja automáticamente. Si no hay sesión, /auth/me da 401.
   useEffect(() => {
     let active = true;
     async function bootstrap() {
-      if (!getToken()) {
-        setLoading(false);
-        return;
-      }
       try {
         const me = await api.me();
         if (active) setUser(me);
       } catch {
-        setToken(null);
+        if (active) setUser(null);
       } finally {
         if (active) setLoading(false);
       }
@@ -32,20 +29,22 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (email, password) => {
     const data = await api.login(email, password);
-    setToken(data.access_token);
     setUser(data.user);
     return data.user;
   }, []);
 
   const register = useCallback(async (email, password, name) => {
     const data = await api.register(email, password, name);
-    setToken(data.access_token);
     setUser(data.user);
     return data.user;
   }, []);
 
-  const logout = useCallback(() => {
-    setToken(null);
+  const logout = useCallback(async () => {
+    try {
+      await api.logout();
+    } catch {
+      // aunque falle la llamada, cerramos la sesión en el cliente
+    }
     setUser(null);
   }, []);
 
@@ -62,7 +61,6 @@ export function AuthProvider({ children }) {
 
   const deleteAccount = useCallback(async (password) => {
     await api.deleteAccount(password);
-    setToken(null);
     setUser(null);
   }, []);
 

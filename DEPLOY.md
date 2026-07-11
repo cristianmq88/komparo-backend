@@ -117,7 +117,7 @@ Si tu teléfono está en la misma red que tu ordenador:
 
 ```bash
 # Backend
-uvicorn api.main:app --host 0.0.0.0 --port 8000
+COOKIE_SECURE=false uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 # Frontend (otra terminal)
 cd frontend && npm install
@@ -125,3 +125,9 @@ npm run dev -- --host        # expone Vite en la red local
 ```
 
 Abre en el móvil `http://IP-DE-TU-PC:5173` (verás la IP en la salida de Vite).
+
+> **`COOKIE_SECURE=false` en local:** la sesión se guarda en una cookie HttpOnly
+> que por defecto es `Secure` (solo viaja por HTTPS). En producción (Render/Railway,
+> con HTTPS) esto es lo correcto y no hay que tocar nada. Pero en desarrollo local
+> sobre `http://` el navegador descartaría la cookie y no podrías iniciar sesión, así
+> que ahí se desactiva con `COOKIE_SECURE=false`.
