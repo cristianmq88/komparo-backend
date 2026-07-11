@@ -26,7 +26,8 @@ from db.database import engine, get_db, Base
 from db.models import User, ShoppingList, ListItem, Recipe
 from api.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES
+    get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES,
+    set_auth_cookie, clear_auth_cookie,
 )
 from api.endpoints_prices import router as prices_router, admin_router
 
@@ -50,9 +51,14 @@ app = FastAPI(
     version="2.0.0",
 )
 
-# La auth va por cabecera Authorization (Bearer), no por cookies, así que no
-# hacen falta credenciales CORS. Además, los navegadores rechazan la combinación
-# allow_origins="*" + allow_credentials=True, con lo que antes el CORS ni aplicaba.
+# La web se sirve desde el mismo origen que la API (ver Dockerfile: la SPA se
+# monta en "/"), por lo que la cookie de sesión HttpOnly viaja sin necesidad de
+# credenciales CORS. Mantenemos allow_origins="*" con allow_credentials=False
+# porque los navegadores rechazan la combinación "*" + credenciales.
+#
+# ⚠️ Si algún día despliegas la web en un origen DISTINTO al de la API, cambia
+# esto por una lista explícita de orígenes y allow_credentials=True, y ajusta la
+# cookie a SameSite="none"; Secure (ver api/auth.py) para que se envíe cross-site.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -170,12 +176,12 @@ def health_check():
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.post("/auth/register", response_model=Token, tags=["auth"])
-def register(data: UserRegister, db: Session = Depends(get_db)):
+def register(data: UserRegister, response: Response, db: Session = Depends(get_db)):
     """Registrar nueva cuenta"""
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
         raise HTTPException(400, "Email ya registrado")
-    
+
     user = User(
         email=data.email,
         name=data.name,
@@ -184,26 +190,39 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
     token = create_access_token(
         {"sub": user.id},
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
+    set_auth_cookie(response, token)
     return Token(access_token=token, token_type="bearer", user=UserOut.from_orm(user))
 
 
 @app.post("/auth/login", response_model=Token, tags=["auth"])
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    response: Response,
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     """Login con email/password"""
     user = db.query(User).filter(User.email == form.username).first()
     if not user or not verify_password(form.password, user.hashed_password):
         raise HTTPException(401, "Email o contraseña incorrectos")
-    
+
     token = create_access_token(
         {"sub": user.id},
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
+    set_auth_cookie(response, token)
     return Token(access_token=token, token_type="bearer", user=UserOut.from_orm(user))
+
+
+@app.post("/auth/logout", tags=["auth"])
+def logout(response: Response):
+    """Cerrar sesión: elimina la cookie de sesión."""
+    clear_auth_cookie(response)
+    return {"message": "Sesión cerrada"}
 
 
 @app.get("/auth/me", response_model=UserOut, tags=["auth"])
@@ -246,6 +265,7 @@ def change_password(
 @app.delete("/auth/me", tags=["auth"])
 def delete_account(
     data: AccountDelete,
+    response: Response,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -257,6 +277,7 @@ def delete_account(
         raise HTTPException(400, "Contraseña incorrecta")
     db.delete(user)
     db.commit()
+    clear_auth_cookie(response)
     return {"message": "Cuenta eliminada permanentemente"}
 
 

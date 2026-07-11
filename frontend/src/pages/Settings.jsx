@@ -118,7 +118,7 @@ export default function Settings() {
           <h1>Mi cuenta</h1>
           <p className="subtle">{user?.email}</p>
         </div>
-        <button className="btn btn-ghost" onClick={() => { logout(); navigate("/login"); }}>
+        <button className="btn btn-ghost" onClick={async () => { await logout(); navigate("/login"); }}>
           Cerrar sesión
         </button>
       </div>
