@@ -32,14 +32,20 @@ La guía detallada está en [DEPLOY.md](DEPLOY.md).
 - [ ] Abrir `https://TU-URL/health` → `{"status":"healthy"}`
 - [ ] Abrir `https://TU-URL/admin/scrapers/status` → ver `products_in_db`
 
-## 7. GitHub — refresco diario gratis
+## 7. GitHub — carga de precios gratis
+> ⏸️ La ejecución automática diaria está **desactivada** para que no falle
+> mientras no exista la base de datos. Haz este paso **después** de tener
+> Railway funcionando.
+
 - [ ] En Railway: caja **Postgres** → **Connect** → copiar la `DATABASE_URL`
       **pública** (contiene `proxy.rlwy.net`)
 - [ ] En GitHub: **Settings → Secrets and variables → Actions →
       New repository secret** → Name: `DATABASE_URL` → pegar → **Add secret**
 - [ ] Pestaña **Actions** → workflow **"Scrapeo de precios (respaldo)"** →
-      **Run workflow** (primera carga manual)
+      **Run workflow** (carga manual)
 - [ ] Esperar el ✔️ verde y recargar la app: ya hay precios
+- [ ] (Opcional) Para volver a tener refresco diario automático: descomentar las
+      dos líneas de `schedule` en `.github/workflows/scrape.yml`
 
 ## 8. Móvil 📱
 - [ ] Abrir `https://TU-URL/` en el móvil

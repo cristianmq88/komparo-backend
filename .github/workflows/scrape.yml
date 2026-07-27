@@ -8,11 +8,17 @@ name: Scrapeo de precios (respaldo)
 #   DATABASE_URL        Cadena de conexión PÚBLICA del PostgreSQL de Railway
 #                       (Railway → Postgres → Connect → Public Network).
 #   SCRAPERAPI_KEY      (opcional) clave del proxy anti-bloqueo.
+#
+# ⏸️ EJECUCIÓN AUTOMÁTICA DESACTIVADA
+# El disparador diario está comentado porque sin el secreto DATABASE_URL el
+# workflow fallaba cada mañana. Cuando la base de datos esté desplegada y el
+# secreto configurado, descomenta las dos líneas de "schedule" para reactivarlo.
+# Mientras tanto se puede lanzar a mano desde la pestaña Actions.
 
 on:
-  schedule:
-    - cron: "0 4 * * *" # todos los días a las 04:00 UTC
-  workflow_dispatch: {} # permite lanzarlo a mano desde la pestaña Actions
+  # schedule:
+  #   - cron: "0 4 * * *" # todos los días a las 04:00 UTC
+  workflow_dispatch: {} # ejecución manual desde la pestaña Actions
 
 jobs:
   scrape:
