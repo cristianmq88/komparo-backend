@@ -98,9 +98,14 @@ sola con ScraperAPI). Comprueba si está activo en `GET /admin/scrapers/status`
 
 ## Respaldo: scrapeo desde GitHub Actions
 
-El repo incluye `.github/workflows/scrape.yml`, que ejecuta los scrapers a diario
-desde los runners de GitHub (internet abierto) y escribe en la BD de producción.
-Es un respaldo del planificador interno, útil si el servicio web se duerme.
+El repo incluye `.github/workflows/scrape.yml`, que ejecuta los scrapers desde los
+runners de GitHub (internet abierto) y escribe en la BD de producción. Es un
+respaldo del planificador interno, útil si el servicio web se duerme.
+
+> ⏸️ **La ejecución diaria está desactivada.** Sin el secreto `DATABASE_URL` el
+> workflow fallaba cada mañana, así que el disparador `schedule` está comentado.
+> De momento solo se puede lanzar a mano. Para reactivar el diario: configura el
+> secreto y descomenta las dos líneas de `schedule` en el workflow.
 
 Para activarlo, añade en **GitHub → Settings → Secrets and variables → Actions**:
 
