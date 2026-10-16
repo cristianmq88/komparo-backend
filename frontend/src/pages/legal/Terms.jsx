@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 export default function Terms() {
   return (
     <article className="legal">
-      <Link to="/search" className="subtle">← Volver</Link>
+      <Link to="/lists" className="subtle">← Volver</Link>
       <h1>Términos y condiciones de uso</h1>
       <p className="subtle">Última actualización: 23 de junio de 2026</p>
 
@@ -20,9 +20,8 @@ export default function Terms() {
 
       <h2>1. Objeto</h2>
       <p>
-        Komparo es una aplicación que permite buscar productos, comparar sus precios entre
-        supermercados y organizar cestas de la compra. El uso de la App implica la aceptación
-        de estos términos.
+        Komparo es una aplicación para organizar tus cestas de la compra y convertir recetas
+        en listas de ingredientes. El uso de la App implica la aceptación de estos términos.
       </p>
 
       <h2>2. Cuenta de usuario</h2>
@@ -38,27 +37,13 @@ export default function Terms() {
         <li>No realizar un uso automatizado o masivo que comprometa el rendimiento.</li>
       </ul>
 
-      <h2>4. Precios e información</h2>
-      <p>
-        Los precios mostrados se obtienen de fuentes públicas de los supermercados y pueden no
-        estar siempre actualizados o ser exactos. Tienen carácter <strong>informativo</strong>;
-        el precio válido es siempre el del establecimiento en el momento de la compra. Komparo no
-        vende productos ni participa en las transacciones.
-      </p>
-
-      <h2>5. Marcas de terceros</h2>
-      <p>
-        Los nombres y marcas de los supermercados pertenecen a sus respectivos titulares. Komparo
-        no está afiliada ni patrocinada por ellos.
-      </p>
-
-      <h2>6. Limitación de responsabilidad</h2>
+      <h2>4. Limitación de responsabilidad</h2>
       <p>
         La App se ofrece «tal cual». En la medida permitida por la ley, no nos hacemos
-        responsables de decisiones de compra tomadas a partir de la información mostrada.
+        responsables de pérdidas derivadas del uso de la App o de interrupciones del servicio.
       </p>
 
-      <h2>7. Modificaciones y cuenta</h2>
+      <h2>5. Modificaciones y cuenta</h2>
       <p>
         Podemos actualizar estos términos y el servicio. Puedes dejar de usar la App y eliminar
         tu cuenta en cualquier momento desde <Link to="/settings">Mi cuenta</Link>.

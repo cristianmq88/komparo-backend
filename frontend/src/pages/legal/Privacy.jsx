@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 export default function Privacy() {
   return (
     <article className="legal">
-      <Link to="/search" className="subtle">← Volver</Link>
+      <Link to="/lists" className="subtle">← Volver</Link>
       <h1>Política de privacidad</h1>
       <p className="subtle">Última actualización: 23 de junio de 2026</p>
 

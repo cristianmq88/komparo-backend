@@ -13,15 +13,12 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <div className="navbar-inner">
-        <NavLink to="/search" className="brand">
+        <NavLink to="/lists" className="brand">
           <img src="/komparo.svg" alt="" />
           Komparo
         </NavLink>
 
         <div className="nav-links">
-          <NavLink to="/search" className="nav-link">
-            Buscar
-          </NavLink>
           <NavLink to="/recipes" className="nav-link">
             Recetas
           </NavLink>
