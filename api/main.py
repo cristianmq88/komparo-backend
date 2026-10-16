@@ -6,8 +6,6 @@ Endpoints:
 - Lists: CRUD de cestas
 - Items: añadir/quitar productos
 - Recipes: catálogo de recetas
-- Products: búsqueda y comparativa
-- Supermarkets: info de los 8 súper
 """
 import os
 import json
@@ -29,7 +27,6 @@ from api.auth import (
     get_current_user, ACCESS_TOKEN_EXPIRE_MINUTES,
     set_auth_cookie, clear_auth_cookie,
 )
-from api.endpoints_prices import router as prices_router, admin_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,9 +63,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Registrar routers de scrapers (precios reales)
-app.include_router(prices_router)
-app.include_router(admin_router)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -161,7 +155,7 @@ def read_root():
         "app": "Komparo API",
         "version": "2.0.0",
         "status": "running",
-        "message": "Listas que comparan, decisiones que ahorran",
+        "message": "Tus listas de la compra, siempre a mano",
         "docs": "/docs",
     }
 
@@ -333,35 +327,6 @@ def export_my_data(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# SUPERMARKETS
-# ──────────────────────────────────────────────────────────────────────────────
-
-SUPERMARKETS = [
-    {"id": "mercadona", "name": "Mercadona", "color": "#0E8C5A"},
-    {"id": "carrefour", "name": "Carrefour", "color": "#004E9A"},
-    {"id": "alcampo", "name": "Alcampo", "color": "#1E4296"},
-    {"id": "dia", "name": "Dia", "color": "#E30613"},
-    {"id": "lidl", "name": "Lidl", "color": "#0050AA"},
-    {"id": "aldi", "name": "Aldi", "color": "#00529B"},
-    {"id": "ahorramas", "name": "Ahorramas", "color": "#FF6B00"},
-    {"id": "corteingles", "name": "El Corte Inglés", "color": "#006E42"},
-]
-
-
-@app.get("/supermarkets", tags=["data"])
-def list_supermarkets():
-    return {"supermarkets": SUPERMARKETS}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# PRODUCTS
-# ──────────────────────────────────────────────────────────────────────────────
-# La búsqueda y la comparativa de precios REALES viven en api/endpoints_prices.py
-# (rutas /products/real/*), pobladas por los scrapers. Los antiguos endpoints de
-# demostración con precios inventados se retiraron antes del lanzamiento público.
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # SHOPPING LISTS (Cestas)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -459,10 +424,6 @@ def remove_item(
     db.commit()
     return {"deleted": True}
 
-
-# La comparativa de precios REALES de una cesta vive en api/endpoints_prices.py
-# (POST /products/real/compare-list), que es la que usa la web. El antiguo
-# /lists/{id}/compare con precios inventados se retiró antes del lanzamiento.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -648,13 +609,6 @@ async def startup_event():
             "🚨 SECRET_KEY no configurada: los tokens se firman con la clave "
             "por defecto (INSEGURO en producción). Añade SECRET_KEY al entorno."
         )
-
-    # Arrancar el planificador de scrapers (scrapeo real automático).
-    try:
-        from scrapers.scheduler import start_scheduler
-        start_scheduler()
-    except Exception as e:
-        logger.warning(f"⚠️ No se pudo arrancar el planificador: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

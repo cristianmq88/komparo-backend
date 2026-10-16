@@ -5,8 +5,6 @@ import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import Lists from "./pages/Lists.jsx";
 import ListDetail from "./pages/ListDetail.jsx";
-import Search from "./pages/Search.jsx";
-import ProductDetail from "./pages/ProductDetail.jsx";
 import Recipes from "./pages/Recipes.jsx";
 import RecipeDetail from "./pages/RecipeDetail.jsx";
 import Settings from "./pages/Settings.jsx";
@@ -22,8 +20,6 @@ export default function App() {
 
       <Route element={<Layout />}>
         {/* Públicas */}
-        <Route path="/search" element={<Search />} />
-        <Route path="/product/:id" element={<ProductDetail />} />
         <Route path="/recipes" element={<Recipes />} />
         <Route path="/recipes/:id" element={<RecipeDetail />} />
         <Route path="/privacy" element={<Privacy />} />
@@ -57,8 +53,8 @@ export default function App() {
         />
       </Route>
 
-      <Route path="/" element={<Navigate to="/search" replace />} />
-      <Route path="*" element={<Navigate to="/search" replace />} />
+      <Route path="/" element={<Navigate to="/lists" replace />} />
+      <Route path="*" element={<Navigate to="/lists" replace />} />
     </Routes>
   );
 }

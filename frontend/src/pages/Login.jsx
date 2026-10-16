@@ -34,7 +34,7 @@ export default function Login() {
           <img src="/komparo.svg" alt="" />
           Komparo
         </div>
-        <p className="auth-tagline">Listas que comparan, decisiones que ahorran</p>
+        <p className="auth-tagline">Tus listas de la compra, siempre a mano</p>
 
         {error && <div className="alert alert-error">{error}</div>}
 

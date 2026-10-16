@@ -83,15 +83,6 @@ export const api = {
     request("/auth/me", { method: "DELETE", body: { password } }),
   exportData: () => request("/auth/me/export"),
 
-  // ── Datos públicos ────────────────────────────────────
-  supermarkets: () => request("/supermarkets"),
-
-  // Precios reales (poblados por los scrapers)
-  searchRealProducts: (q) =>
-    request(`/products/real/search?q=${encodeURIComponent(q)}`),
-  productPrices: (id) => request(`/products/real/${id}/prices`),
-  productHistory: (id, days = 30) =>
-    request(`/products/real/${id}/history?days=${days}`),
 
   // ── Listas / cestas ───────────────────────────────────
   getLists: () => request("/lists"),
@@ -102,10 +93,6 @@ export const api = {
     request(`/lists/${listId}/items`, { method: "POST", body: item }),
   removeItem: (listId, itemId) =>
     request(`/lists/${listId}/items/${itemId}`, { method: "DELETE" }),
-  // Comparativa con precios reales
-  compareListReal: (listId) =>
-    request(`/products/real/compare-list?list_id=${encodeURIComponent(listId)}`, { method: "POST" }),
-
   // ── Recetas ───────────────────────────────────────────
   getRecipes: (params = {}) => {
     const qs = new URLSearchParams(params).toString();

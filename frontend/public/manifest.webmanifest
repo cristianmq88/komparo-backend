@@ -1,7 +1,7 @@
 {
-  "name": "Komparo · Compara y ahorra",
+  "name": "Komparo · Tu lista de la compra",
   "short_name": "Komparo",
-  "description": "Compara precios de supermercados y ahorra en tu compra.",
+  "description": "Organiza tus cestas de la compra y convierte recetas en listas.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

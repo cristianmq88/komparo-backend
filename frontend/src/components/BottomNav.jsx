@@ -7,10 +7,6 @@ export default function BottomNav() {
 
   return (
     <nav className="bottom-nav">
-      <NavLink to="/search" className="bottom-link">
-        <span className="bn-icon">🔍</span>
-        <span>Buscar</span>
-      </NavLink>
       <NavLink to="/recipes" className="bottom-link">
         <span className="bn-icon">🍳</span>
         <span>Recetas</span>
